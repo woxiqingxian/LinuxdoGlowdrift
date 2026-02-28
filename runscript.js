@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.02.28.1400
+// @version      2026.02.28.1429
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 标签页独立开关 + 运行光圈）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -134,13 +134,18 @@
     const STORAGE_KEYS = {
         enabled: 'linuxdoHelperEnabled', // 旧版全局开关（仅用于迁移清理）
         baseConfig: 'linuxdoHelperBaseConfig',
-        visitedLinks: 'visitedLinks'
+        visitedLinks: 'visitedLinks',
+        sieveLevels: 'linuxdoSieveLevels',
+        sieveCats: 'linuxdoSieveCats',
+        sieveTags: 'linuxdoSieveTags',
+        sievePresets: 'linuxdoSievePresets'
     };
 
     /** 当前标签页会话存储键名（用于区分不同窗口/标签） */
     const SESSION_KEYS = {
         enabled: 'linuxdoHelperEnabledInTab',
-        migrated: 'linuxdoHelperLegacySwitchMigrated'
+        migrated: 'linuxdoHelperLegacySwitchMigrated',
+        sieveEnabled: 'linuxdoSieveEnabledInTab'
     };
 
     /** 页面URL */
@@ -164,6 +169,55 @@
         btnBorder: 'rgba(31, 116, 216, 0.44)',
         btnBorderHover: 'rgba(31, 116, 216, 0.62)',
         halo: '64, 149, 255'
+    };
+
+    /** 主页筛选工具配置 */
+    const SIEVE_CONFIG = {
+        paths: ['/', '/latest', '/top', '/new'],
+        levels: [
+            { key: 'public', label: '公开(Lv0)', check: (classText) => !/lv\d+/i.test(classText) },
+            { key: 'lv1', label: 'Lv1', check: (classText) => /lv1/i.test(classText) },
+            { key: 'lv2', label: 'Lv2', check: (classText) => /lv2/i.test(classText) },
+            { key: 'lv3', label: 'Lv3', check: (classText) => /lv3/i.test(classText) }
+        ],
+        categories: [
+            { id: '4', name: '开发调优' },
+            { id: '98', name: '国产替代' },
+            { id: '14', name: '资源荟萃' },
+            { id: '42', name: '文档共建' },
+            { id: '10', name: '跳蚤市场' },
+            { id: '106', name: '积分乐园' },
+            { id: '27', name: '非我莫属' },
+            { id: '32', name: '读书成诗' },
+            { id: '46', name: '扬帆起航' },
+            { id: '34', name: '前沿快讯' },
+            { id: '92', name: '网络记忆' },
+            { id: '36', name: '福利羊毛' },
+            { id: '11', name: '搞七捻三' },
+            { id: '102', name: '社区孵化' },
+            { id: '2', name: '运营反馈' },
+            { id: '45', name: '深海幽域' }
+        ],
+        tags: [
+            '无标签', '纯水', '快问快答', '人工智能', '软件开发',
+            '夸克网盘', '病友', 'ChatGPT', '树洞', 'AFF',
+            'OpenAI', '影视', '百度网盘', 'VPS', '职场',
+            '网络安全', '订阅节点', '抽奖', 'Cursor', '游戏',
+            '动漫', '作品集', '晒年味', 'Gemini', 'PT',
+            '拼车', '求资源', '配置优化', 'Claude', 'NSFW',
+            '圆圆满满'
+        ],
+        state: {
+            neutral: 0,
+            include: 1,
+            exclude: 2
+        }
+    };
+
+    /** 主页筛选工具UI常量 */
+    const SIEVE_UI_IDS = {
+        panel: 'linuxdo-sieve-panel',
+        style: 'linuxdo-sieve-style'
     };
 
     /** 元素等待超时时间（毫秒） */
@@ -537,6 +591,46 @@
     }
 
     /**
+     * 设置主页筛选开关状态（当前标签页）
+     * @param {boolean} enabled - 是否启用
+     */
+    function setSieveSwitchState(enabled) {
+        sessionStorage.setItem(SESSION_KEYS.sieveEnabled, enabled ? '1' : '0');
+    }
+
+    /**
+     * 获取主页筛选开关状态（当前标签页）
+     * 默认启用，保证首次安装即可使用筛选功能。
+     * @returns {boolean} 是否启用
+     */
+    function getSieveSwitchState() {
+        const saved = sessionStorage.getItem(SESSION_KEYS.sieveEnabled);
+        if (saved === null) {
+            sessionStorage.setItem(SESSION_KEYS.sieveEnabled, '1');
+            return true;
+        }
+        return saved === '1';
+    }
+
+    /**
+     * 切换主页筛选开关状态
+     * @returns {boolean} 切换后的状态
+     */
+    function toggleSieveSwitch() {
+        const currentState = getSieveSwitchState();
+        const newState = !currentState;
+        setSieveSwitchState(newState);
+
+        if (newState) {
+            initHomeSieveTool();
+        } else {
+            destroyHomeSieveTool();
+        }
+        console.log(`主页筛选功能已${newState ? '启用' : '禁用'}`);
+        return newState;
+    }
+
+    /**
      * 切换助手开关状态
      */
     function toggleSwitch() {
@@ -770,6 +864,43 @@
     }
 
     /**
+     * 创建筛选开关图标
+     * @param {boolean} enabled - 是否启用
+     * @returns {SVGElement} SVG元素
+     */
+    function createSieveSVGIcon(enabled) {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('class', 'fa d-icon svg-icon prefix-icon svg-string linuxdo-helper-toggle-icon');
+        svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('aria-hidden', 'true');
+
+        svg.appendChild(createSvgElement('path', {
+            d: 'M3 5h18l-7.4 8.1v5.1l-3.2 1.8v-6.9z',
+            fill: 'currentColor',
+            opacity: enabled ? '0.98' : '0.72'
+        }));
+
+        if (!enabled) {
+            svg.appendChild(createSvgElement('path', {
+                d: 'M5 19L19 5',
+                fill: 'none',
+                stroke: 'currentColor',
+                'stroke-width': '2.2',
+                'stroke-linecap': 'round'
+            }));
+        }
+
+        return svg;
+    }
+
+    /** 更新筛选开关按钮图标 */
+    function setSieveButtonIcon(buttonElement, enabled) {
+        buttonElement.querySelectorAll('.linuxdo-helper-toggle-icon').forEach((node) => node.remove());
+        buttonElement.appendChild(createSieveSVGIcon(enabled));
+    }
+
+    /**
      * 创建控制开关按钮
      * @returns {HTMLElement} 开关按钮的 li 元素
      */
@@ -803,6 +934,43 @@
             const newState = getSwitchState();
             setToggleButtonIcon(iconLink, newState);
             iconLink.title = newState ? '停止Linuxdo助手' : '启动Linuxdo助手';
+            iconLink.setAttribute('aria-label', iconLink.title);
+            iconLink.classList.toggle('active', newState);
+        });
+
+        return iconLi;
+    }
+
+    /**
+     * 创建筛选功能开关按钮
+     * @returns {HTMLElement} 开关按钮的 li 元素
+     */
+    function createSieveSwitchButton() {
+        ensureToggleButtonStyle();
+
+        const iconLi = document.createElement('li');
+        iconLi.className = 'header-dropdown-toggle linuxdo-helper-toggle-item';
+
+        const iconLink = document.createElement('a');
+        iconLink.href = '#';
+        iconLink.className = 'btn no-text icon btn-flat linuxdo-helper-toggle-btn';
+        iconLink.tabIndex = 0;
+
+        const isEnabled = getSieveSwitchState();
+        iconLink.title = isEnabled ? '关闭主页筛选' : '开启主页筛选';
+        iconLink.setAttribute('aria-label', iconLink.title);
+        iconLink.classList.toggle('active', isEnabled);
+
+        setSieveButtonIcon(iconLink, isEnabled);
+        iconLi.appendChild(iconLink);
+
+        iconLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const newState = toggleSieveSwitch();
+            setSieveButtonIcon(iconLink, newState);
+            iconLink.title = newState ? '关闭主页筛选' : '开启主页筛选';
             iconLink.setAttribute('aria-label', iconLink.title);
             iconLink.classList.toggle('active', newState);
         });
@@ -850,7 +1018,12 @@
      * 将开关按钮插入到页面中
      * @param {HTMLElement} buttonElement - 开关按钮元素
      */
-    function insertSwitchButton(buttonElement) {
+    function insertSwitchButton(buttonElement, afterElement = null) {
+        if (afterElement?.parentNode) {
+            afterElement.parentNode.insertBefore(buttonElement, afterElement.nextSibling);
+            return;
+        }
+
         // 优先插入到聊天按钮旁边
         const chatButton = document.querySelector(SELECTORS.chatButton);
         if (chatButton?.parentNode) {
@@ -886,6 +1059,18 @@
         const switchButton = createSwitchButton();
         await findChatButton(); // 等待聊天按钮加载
         insertSwitchButton(switchButton);
+        return switchButton;
+    }
+
+    /**
+     * 创建并插入筛选开关图标到页面
+     * @param {HTMLElement|null} afterElement - 参考元素（插入到其后）
+     */
+    async function createSieveSwitchIcon(afterElement = null) {
+        const sieveSwitchButton = createSieveSwitchButton();
+        await findChatButton(); // 等待聊天按钮加载
+        insertSwitchButton(sieveSwitchButton, afterElement);
+        return sieveSwitchButton;
     }
 
     // ==================== DOM 工具函数 ====================
@@ -942,6 +1127,730 @@
             .filter(link => link.href);
     }
 
+    // ==================== 主页筛选工具 ====================
+
+    /**
+     * 主页帖子筛选模块
+     * 支持等级/分类/标签筛选，以及筛选预设的保存与加载。
+     */
+    class HomeSieveModule {
+        constructor() {
+            this.panel = null;
+            this.statusEl = null;
+            this.loopTimer = null;
+            this.lastUrl = location.href;
+            this.lastRowCount = 0;
+            this.filterDirty = true;
+
+            this.activeLevels = this.readStored(
+                STORAGE_KEYS.sieveLevels,
+                SIEVE_CONFIG.levels.map((item) => item.key)
+            );
+            this.activeCats = this.readStored(
+                STORAGE_KEYS.sieveCats,
+                SIEVE_CONFIG.categories.map((item) => item.id)
+            );
+            this.tagStates = this.readStored(STORAGE_KEYS.sieveTags, {});
+            this.presets = this.readStored(STORAGE_KEYS.sievePresets, {});
+        }
+
+        readStored(key, fallback) {
+            const value = GM_getValue(key, null);
+            if (value === null || value === undefined) {
+                return fallback;
+            }
+            if (Array.isArray(fallback) && !Array.isArray(value)) {
+                return fallback;
+            }
+            if (
+                typeof fallback === 'object' &&
+                fallback !== null &&
+                !Array.isArray(fallback) &&
+                (typeof value !== 'object' || value === null || Array.isArray(value))
+            ) {
+                return fallback;
+            }
+            return value;
+        }
+
+        isHomePage() {
+            return SIEVE_CONFIG.paths.includes(window.location.pathname);
+        }
+
+        hasActiveFilter() {
+            const allLevel = this.activeLevels.length === SIEVE_CONFIG.levels.length;
+            const allCategory = this.activeCats.length === SIEVE_CONFIG.categories.length;
+            const hasTagFilter = Object.keys(this.tagStates).length > 0;
+            return !(allLevel && allCategory && !hasTagFilter);
+        }
+
+        init() {
+            this.ensureStyles();
+            this.onRouteChange();
+            this.startLoop();
+        }
+
+        destroy() {
+            if (this.loopTimer) {
+                clearInterval(this.loopTimer);
+                this.loopTimer = null;
+            }
+            this.removePanel();
+            this.showAllTopics();
+        }
+
+        ensureStyles() {
+            if (document.getElementById(SIEVE_UI_IDS.style)) {
+                return;
+            }
+
+            const style = document.createElement('style');
+            style.id = SIEVE_UI_IDS.style;
+            style.textContent = `
+                #${SIEVE_UI_IDS.panel} {
+                    margin-bottom: 14px;
+                    padding: 12px 14px;
+                    border: 1px solid var(--primary-low, rgba(0, 0, 0, 0.12));
+                    border-radius: 10px;
+                    background: var(--secondary, rgba(255, 255, 255, 0.96));
+                    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+                    position: relative;
+                    font-size: 13px;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-row {
+                    display: flex;
+                    flex-wrap: wrap;
+                    align-items: center;
+                    gap: 6px;
+                    padding: 8px 0;
+                    border-bottom: 1px dashed var(--primary-low, rgba(0, 0, 0, 0.12));
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-row:last-child {
+                    border-bottom: none;
+                    padding-bottom: 0;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-title {
+                    min-width: 34px;
+                    color: var(--primary, #444);
+                    font-weight: 600;
+                    user-select: none;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-action {
+                    padding: 3px 8px;
+                    border-radius: 4px;
+                    border: 1px solid var(--primary-low, rgba(0, 0, 0, 0.16));
+                    color: var(--primary-medium, #666);
+                    font-size: 11px;
+                    cursor: pointer;
+                    user-select: none;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-action:hover {
+                    border-color: #3b82f6;
+                    color: #3b82f6;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-btn {
+                    padding: 4px 9px;
+                    border-radius: 5px;
+                    border: 1px solid var(--primary-low, rgba(0, 0, 0, 0.16));
+                    font-size: 12px;
+                    cursor: pointer;
+                    color: var(--primary, #333);
+                    user-select: none;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    white-space: nowrap;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-btn:hover {
+                    border-color: #3b82f6;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-btn.active {
+                    color: #16a34a;
+                    border-color: #16a34a;
+                    font-weight: 600;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-btn.exclude {
+                    color: #dc2626;
+                    border-color: #dc2626;
+                    font-weight: 600;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-btn svg {
+                    width: 10px;
+                    height: 10px;
+                    fill: currentColor;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-presets {
+                    display: inline-flex;
+                    flex-wrap: wrap;
+                    align-items: center;
+                    gap: 6px;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-preset {
+                    display: inline-flex;
+                    align-items: center;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-preset-name,
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-preset-del {
+                    padding: 4px 8px;
+                    border: 1px solid var(--primary-low, rgba(0, 0, 0, 0.16));
+                    font-size: 12px;
+                    cursor: pointer;
+                    user-select: none;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-preset-name {
+                    border-radius: 5px 0 0 5px;
+                    border-right: none;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-preset-del {
+                    border-radius: 0 5px 5px 0;
+                    color: #888;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-preset-del:hover {
+                    color: #dc2626;
+                    border-color: #dc2626;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-save-wrap {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-save-input {
+                    width: 86px;
+                    padding: 4px 8px;
+                    border-radius: 5px;
+                    border: 1px solid var(--primary-low, rgba(0, 0, 0, 0.16));
+                    font-size: 12px;
+                    outline: none;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-save-input:focus {
+                    border-color: #3b82f6;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-save-btn {
+                    padding: 4px 10px;
+                    border-radius: 5px;
+                    border: 1px solid #3b82f6;
+                    background: #3b82f6;
+                    color: #fff;
+                    font-size: 12px;
+                    cursor: pointer;
+                    user-select: none;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-save-btn:hover {
+                    opacity: 0.9;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-empty {
+                    font-size: 11px;
+                    color: #9ca3af;
+                    font-style: italic;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-status {
+                    position: absolute;
+                    top: 10px;
+                    right: 12px;
+                    font-size: 11px;
+                    color: #6b7280;
+                    opacity: 0;
+                    transition: opacity 180ms ease;
+                    pointer-events: none;
+                }
+                #${SIEVE_UI_IDS.panel} .linuxdo-sieve-status.visible {
+                    opacity: 1;
+                }
+            `;
+
+            document.head.appendChild(style);
+        }
+
+        createPanel() {
+            if (!this.isHomePage()) {
+                return;
+            }
+
+            const existing = document.getElementById(SIEVE_UI_IDS.panel);
+            if (existing) {
+                this.panel = existing;
+                this.statusEl = existing.querySelector('.linuxdo-sieve-status');
+                return;
+            }
+
+            const target = document.querySelector('.list-controls') || document.querySelector('.topic-list');
+            if (!target || !target.parentNode) {
+                return;
+            }
+
+            const panel = document.createElement('div');
+            panel.id = SIEVE_UI_IDS.panel;
+            panel.innerHTML = this.renderPanelHTML();
+            target.parentNode.insertBefore(panel, target);
+
+            this.panel = panel;
+            this.statusEl = panel.querySelector('.linuxdo-sieve-status');
+            this.bindEvents();
+        }
+
+        removePanel() {
+            const panel = document.getElementById(SIEVE_UI_IDS.panel);
+            if (panel) {
+                panel.remove();
+            }
+            this.panel = null;
+            this.statusEl = null;
+        }
+
+        renderPanelHTML() {
+            const checkIcon = '<svg viewBox="0 0 448 512"><path d="M438.6 105.4c12.5 12.5 12.5 32.8 0 45.3l-256 256c-12.5 12.5-32.8 12.5-45.3 0l-128-128c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0L160 338.7 393.4 105.4c12.5-12.5 32.8-12.5 45.3 0z"></path></svg>';
+            const banIcon = '<svg viewBox="0 0 512 512"><path d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM175 175c9.4-9.4 24.6-9.4 33.9 0l47 47 47-47c9.4-9.4 24.6-9.4 33.9 0s9.4 24.6 0 33.9l-47 47 47 47c9.4 9.4 9.4 24.6 0 33.9s-24.6 9.4-33.9 0l-47-47-47 47c-9.4 9.4-24.6 9.4-33.9 0s-9.4-24.6 0-33.9l47-47-47-47c-9.4-9.4-9.4-24.6 0-33.9z"></path></svg>';
+
+            const levelButtons = SIEVE_CONFIG.levels.map((item) => {
+                const active = this.activeLevels.includes(item.key);
+                return `<span class="linuxdo-sieve-btn${active ? ' active' : ''}" data-type="level" data-key="${item.key}">${active ? checkIcon : ''}${item.label}</span>`;
+            }).join('');
+
+            const categoryButtons = SIEVE_CONFIG.categories.map((item) => {
+                const active = this.activeCats.includes(item.id);
+                return `<span class="linuxdo-sieve-btn${active ? ' active' : ''}" data-type="cat" data-key="${item.id}">${active ? checkIcon : ''}${item.name}</span>`;
+            }).join('');
+
+            const tagButtons = SIEVE_CONFIG.tags.map((tag) => {
+                const state = this.tagStates[tag] || SIEVE_CONFIG.state.neutral;
+                let className = 'linuxdo-sieve-btn';
+                let icon = '';
+                if (state === SIEVE_CONFIG.state.include) {
+                    className += ' active';
+                    icon = checkIcon;
+                } else if (state === SIEVE_CONFIG.state.exclude) {
+                    className += ' exclude';
+                    icon = banIcon;
+                }
+                return `<span class="${className}" data-type="tag" data-key="${tag}">${icon}${tag}</span>`;
+            }).join('');
+
+            return `
+                <div class="linuxdo-sieve-status"></div>
+                <div class="linuxdo-sieve-row">
+                    <span class="linuxdo-sieve-title">等级</span>
+                    <span class="linuxdo-sieve-action" data-action="toggle-level">全选</span>
+                    ${levelButtons}
+                </div>
+                <div class="linuxdo-sieve-row">
+                    <span class="linuxdo-sieve-title">分类</span>
+                    <span class="linuxdo-sieve-action" data-action="toggle-cat">全选</span>
+                    ${categoryButtons}
+                </div>
+                <div class="linuxdo-sieve-row">
+                    <span class="linuxdo-sieve-title">标签</span>
+                    <span class="linuxdo-sieve-action" data-action="reset-tag">重置</span>
+                    ${tagButtons}
+                </div>
+                <div class="linuxdo-sieve-row">
+                    <span class="linuxdo-sieve-title">预设</span>
+                    <div class="linuxdo-sieve-presets">${this.renderPresetChips()}</div>
+                    <span class="linuxdo-sieve-save-wrap">
+                        <input type="text" class="linuxdo-sieve-save-input" placeholder="名称" maxlength="10">
+                        <span class="linuxdo-sieve-save-btn">保存</span>
+                    </span>
+                </div>
+            `;
+        }
+
+        renderPresetChips() {
+            const names = Object.keys(this.presets || {});
+            if (names.length === 0) {
+                return '<span class="linuxdo-sieve-empty">暂无预设</span>';
+            }
+            return names.map((name) => {
+                return `
+                    <span class="linuxdo-sieve-preset" data-preset="${name}">
+                        <span class="linuxdo-sieve-preset-name">${name}</span>
+                        <span class="linuxdo-sieve-preset-del">×</span>
+                    </span>
+                `;
+            }).join('');
+        }
+
+        refreshPresetChips() {
+            if (!this.panel) {
+                return;
+            }
+            const wrapper = this.panel.querySelector('.linuxdo-sieve-presets');
+            if (!wrapper) {
+                return;
+            }
+            wrapper.innerHTML = this.renderPresetChips();
+        }
+
+        bindEvents() {
+            if (!this.panel) {
+                return;
+            }
+
+            this.panel.addEventListener('click', (event) => {
+                const target = event.target.closest('[data-action], [data-type], .linuxdo-sieve-preset-name, .linuxdo-sieve-preset-del, .linuxdo-sieve-save-btn');
+                if (!target) {
+                    return;
+                }
+
+                if (target.dataset.action) {
+                    this.handleAction(target.dataset.action);
+                    return;
+                }
+
+                if (target.dataset.type) {
+                    this.handleFilterButton(target);
+                    return;
+                }
+
+                if (target.classList.contains('linuxdo-sieve-preset-name')) {
+                    const presetName = target.closest('.linuxdo-sieve-preset')?.dataset.preset;
+                    if (presetName) {
+                        this.loadPreset(presetName);
+                    }
+                    return;
+                }
+
+                if (target.classList.contains('linuxdo-sieve-preset-del')) {
+                    const presetName = target.closest('.linuxdo-sieve-preset')?.dataset.preset;
+                    if (presetName && confirm(`确定删除预设 "${presetName}"？`)) {
+                        this.deletePreset(presetName);
+                    }
+                    return;
+                }
+
+                if (target.classList.contains('linuxdo-sieve-save-btn')) {
+                    const input = this.panel.querySelector('.linuxdo-sieve-save-input');
+                    const name = input?.value.trim();
+                    if (name) {
+                        this.savePreset(name);
+                        input.value = '';
+                    }
+                }
+            });
+
+            const input = this.panel.querySelector('.linuxdo-sieve-save-input');
+            if (input) {
+                input.addEventListener('keydown', (event) => {
+                    if (event.key !== 'Enter') {
+                        return;
+                    }
+                    const name = input.value.trim();
+                    if (!name) {
+                        return;
+                    }
+                    this.savePreset(name);
+                    input.value = '';
+                });
+            }
+        }
+
+        handleAction(action) {
+            if (action === 'toggle-level') {
+                if (this.activeLevels.length === SIEVE_CONFIG.levels.length) {
+                    this.activeLevels = [];
+                } else {
+                    this.activeLevels = SIEVE_CONFIG.levels.map((item) => item.key);
+                }
+                GM_setValue(STORAGE_KEYS.sieveLevels, this.activeLevels);
+            } else if (action === 'toggle-cat') {
+                if (this.activeCats.length === SIEVE_CONFIG.categories.length) {
+                    this.activeCats = [];
+                } else {
+                    this.activeCats = SIEVE_CONFIG.categories.map((item) => item.id);
+                }
+                GM_setValue(STORAGE_KEYS.sieveCats, this.activeCats);
+            } else if (action === 'reset-tag') {
+                this.tagStates = {};
+                GM_setValue(STORAGE_KEYS.sieveTags, this.tagStates);
+            }
+
+            this.filterDirty = true;
+            this.updateButtonStates();
+            this.filterTopics();
+        }
+
+        handleFilterButton(button) {
+            const checkIcon = '<svg viewBox="0 0 448 512"><path d="M438.6 105.4c12.5 12.5 12.5 32.8 0 45.3l-256 256c-12.5 12.5-32.8 12.5-45.3 0l-128-128c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0L160 338.7 393.4 105.4c12.5-12.5 32.8-12.5 45.3 0z"></path></svg>';
+            const banIcon = '<svg viewBox="0 0 512 512"><path d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM175 175c9.4-9.4 24.6-9.4 33.9 0l47 47 47-47c9.4-9.4 24.6-9.4 33.9 0s9.4 24.6 0 33.9l-47 47 47 47c9.4 9.4 9.4 24.6 0 33.9s-24.6 9.4-33.9 0l-47-47-47 47c-9.4 9.4-24.6 9.4-33.9 0s-9.4-24.6 0-33.9l47-47-47-47c-9.4-9.4-9.4-24.6 0-33.9z"></path></svg>';
+            const buttonType = button.dataset.type;
+            const key = button.dataset.key;
+
+            if (buttonType === 'level') {
+                const existingIndex = this.activeLevels.indexOf(key);
+                const label = SIEVE_CONFIG.levels.find((item) => item.key === key)?.label || key;
+                if (existingIndex >= 0) {
+                    this.activeLevels.splice(existingIndex, 1);
+                    button.classList.remove('active');
+                    button.innerHTML = label;
+                } else {
+                    this.activeLevels.push(key);
+                    button.classList.add('active');
+                    button.innerHTML = `${checkIcon}${label}`;
+                }
+                GM_setValue(STORAGE_KEYS.sieveLevels, this.activeLevels);
+            } else if (buttonType === 'cat') {
+                const existingIndex = this.activeCats.indexOf(key);
+                const label = SIEVE_CONFIG.categories.find((item) => item.id === key)?.name || key;
+                if (existingIndex >= 0) {
+                    this.activeCats.splice(existingIndex, 1);
+                    button.classList.remove('active');
+                    button.innerHTML = label;
+                } else {
+                    this.activeCats.push(key);
+                    button.classList.add('active');
+                    button.innerHTML = `${checkIcon}${label}`;
+                }
+                GM_setValue(STORAGE_KEYS.sieveCats, this.activeCats);
+            } else if (buttonType === 'tag') {
+                let state = this.tagStates[key] || SIEVE_CONFIG.state.neutral;
+                state = (state + 1) % 3;
+                if (state === SIEVE_CONFIG.state.neutral) {
+                    delete this.tagStates[key];
+                    button.classList.remove('active', 'exclude');
+                    button.innerHTML = key;
+                } else if (state === SIEVE_CONFIG.state.include) {
+                    this.tagStates[key] = state;
+                    button.classList.add('active');
+                    button.classList.remove('exclude');
+                    button.innerHTML = `${checkIcon}${key}`;
+                } else {
+                    this.tagStates[key] = state;
+                    button.classList.remove('active');
+                    button.classList.add('exclude');
+                    button.innerHTML = `${banIcon}${key}`;
+                }
+                GM_setValue(STORAGE_KEYS.sieveTags, this.tagStates);
+            }
+
+            this.filterDirty = true;
+            this.filterTopics();
+        }
+
+        updateButtonStates() {
+            if (!this.panel) {
+                return;
+            }
+
+            const checkIcon = '<svg viewBox="0 0 448 512"><path d="M438.6 105.4c12.5 12.5 12.5 32.8 0 45.3l-256 256c-12.5 12.5-32.8 12.5-45.3 0l-128-128c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0L160 338.7 393.4 105.4c12.5-12.5 32.8-12.5 45.3 0z"></path></svg>';
+            const banIcon = '<svg viewBox="0 0 512 512"><path d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM175 175c9.4-9.4 24.6-9.4 33.9 0l47 47 47-47c9.4-9.4 24.6-9.4 33.9 0s9.4 24.6 0 33.9l-47 47 47 47c9.4 9.4 9.4 24.6 0 33.9s-24.6 9.4-33.9 0l-47-47-47 47c-9.4 9.4-24.6 9.4-33.9 0s-9.4-24.6 0-33.9l47-47-47-47c-9.4-9.4-9.4-24.6 0-33.9z"></path></svg>';
+
+            this.panel.querySelectorAll('[data-type="level"]').forEach((button) => {
+                const key = button.dataset.key;
+                const label = SIEVE_CONFIG.levels.find((item) => item.key === key)?.label || key;
+                const active = this.activeLevels.includes(key);
+                button.className = `linuxdo-sieve-btn${active ? ' active' : ''}`;
+                button.innerHTML = `${active ? checkIcon : ''}${label}`;
+            });
+
+            this.panel.querySelectorAll('[data-type="cat"]').forEach((button) => {
+                const key = button.dataset.key;
+                const label = SIEVE_CONFIG.categories.find((item) => item.id === key)?.name || key;
+                const active = this.activeCats.includes(key);
+                button.className = `linuxdo-sieve-btn${active ? ' active' : ''}`;
+                button.innerHTML = `${active ? checkIcon : ''}${label}`;
+            });
+
+            this.panel.querySelectorAll('[data-type="tag"]').forEach((button) => {
+                const key = button.dataset.key;
+                const state = this.tagStates[key] || SIEVE_CONFIG.state.neutral;
+                let className = 'linuxdo-sieve-btn';
+                let icon = '';
+                if (state === SIEVE_CONFIG.state.include) {
+                    className += ' active';
+                    icon = checkIcon;
+                } else if (state === SIEVE_CONFIG.state.exclude) {
+                    className += ' exclude';
+                    icon = banIcon;
+                }
+                button.className = className;
+                button.innerHTML = `${icon}${key}`;
+            });
+        }
+
+        savePreset(name) {
+            this.presets[name] = {
+                levels: [...this.activeLevels],
+                cats: [...this.activeCats],
+                tags: { ...this.tagStates }
+            };
+            GM_setValue(STORAGE_KEYS.sievePresets, this.presets);
+            this.refreshPresetChips();
+        }
+
+        loadPreset(name) {
+            const preset = this.presets[name];
+            if (!preset) {
+                return;
+            }
+            this.activeLevels = [...(preset.levels || [])];
+            this.activeCats = [...(preset.cats || [])];
+            this.tagStates = { ...(preset.tags || {}) };
+
+            GM_setValue(STORAGE_KEYS.sieveLevels, this.activeLevels);
+            GM_setValue(STORAGE_KEYS.sieveCats, this.activeCats);
+            GM_setValue(STORAGE_KEYS.sieveTags, this.tagStates);
+
+            this.filterDirty = true;
+            this.updateButtonStates();
+            this.filterTopics();
+        }
+
+        deletePreset(name) {
+            delete this.presets[name];
+            GM_setValue(STORAGE_KEYS.sievePresets, this.presets);
+            this.refreshPresetChips();
+        }
+
+        showAllTopics() {
+            const rows = document.querySelectorAll('.topic-list-body tr.topic-list-item');
+            rows.forEach((row) => {
+                row.style.display = '';
+            });
+        }
+
+        filterTopics() {
+            const rows = document.querySelectorAll('.topic-list-body tr.topic-list-item');
+            if (!rows.length) {
+                this.updateStatus('');
+                return 0;
+            }
+
+            if (!this.hasActiveFilter()) {
+                this.showAllTopics();
+                this.updateStatus('');
+                return rows.length;
+            }
+
+            const includeTags = [];
+            const excludeTags = [];
+            SIEVE_CONFIG.tags.forEach((tag) => {
+                const state = this.tagStates[tag] || SIEVE_CONFIG.state.neutral;
+                if (state === SIEVE_CONFIG.state.include) {
+                    includeTags.push(tag);
+                } else if (state === SIEVE_CONFIG.state.exclude) {
+                    excludeTags.push(tag);
+                }
+            });
+
+            const allLevel = this.activeLevels.length === SIEVE_CONFIG.levels.length;
+            const allCategory = this.activeCats.length === SIEVE_CONFIG.categories.length;
+            let visibleCount = 0;
+
+            rows.forEach((row) => {
+                const classText = row.className || '';
+                const classList = Array.from(row.classList || []);
+
+                let levelMatch = allLevel;
+                if (!levelMatch) {
+                    levelMatch = SIEVE_CONFIG.levels.some((item) => {
+                        return this.activeLevels.includes(item.key) && item.check(classText);
+                    });
+                }
+
+                let categoryMatch = allCategory;
+                if (levelMatch && !categoryMatch) {
+                    const categoryNode = row.querySelector('.badge-category__wrapper span[data-category-id], .badge-category span[data-category-id]');
+                    if (categoryNode) {
+                        const categoryId = categoryNode.getAttribute('data-category-id');
+                        const parentId = categoryNode.getAttribute('data-parent-category-id');
+                        categoryMatch = this.activeCats.includes(categoryId) || (parentId && this.activeCats.includes(parentId));
+                    } else {
+                        categoryMatch = true;
+                    }
+                }
+
+                let tagMatch = true;
+                if (levelMatch && categoryMatch) {
+                    const rowTags = classList
+                        .filter((token) => token.startsWith('tag-'))
+                        .map((token) => {
+                            try {
+                                return decodeURIComponent(token.slice(4));
+                            } catch (_error) {
+                                return token.slice(4);
+                            }
+                        });
+                    const noTag = rowTags.length === 0;
+
+                    if (excludeTags.length > 0) {
+                        if (noTag && excludeTags.includes('无标签')) {
+                            tagMatch = false;
+                        } else if (rowTags.some((tag) => excludeTags.includes(tag))) {
+                            tagMatch = false;
+                        }
+                    }
+
+                    if (tagMatch && includeTags.length > 0) {
+                        if (noTag) {
+                            tagMatch = includeTags.includes('无标签');
+                        } else {
+                            tagMatch = rowTags.some((tag) => includeTags.includes(tag));
+                        }
+                    }
+                }
+
+                const visible = levelMatch && categoryMatch && tagMatch;
+                row.style.display = visible ? '' : 'none';
+                if (visible) {
+                    visibleCount += 1;
+                }
+            });
+
+            this.updateStatus(`筛选中 (${visibleCount} 条)`);
+            return visibleCount;
+        }
+
+        updateStatus(text) {
+            if (!this.statusEl) {
+                return;
+            }
+            this.statusEl.textContent = text;
+            this.statusEl.className = `linuxdo-sieve-status${text ? ' visible' : ''}`;
+        }
+
+        startLoop() {
+            if (this.loopTimer) {
+                return;
+            }
+            this.loopTimer = window.setInterval(() => this.tick(), 1200);
+        }
+
+        tick() {
+            if (location.href !== this.lastUrl) {
+                this.lastUrl = location.href;
+                this.onRouteChange();
+            }
+
+            if (!this.isHomePage()) {
+                return;
+            }
+
+            if (!this.panel || !document.getElementById(SIEVE_UI_IDS.panel)) {
+                this.createPanel();
+            }
+
+            const rows = document.querySelectorAll('.topic-list-body tr.topic-list-item');
+            const hasChanged = this.filterDirty || rows.length !== this.lastRowCount;
+            if (!hasChanged) {
+                return;
+            }
+
+            this.lastRowCount = rows.length;
+            this.filterDirty = false;
+            this.filterTopics();
+        }
+
+        onRouteChange() {
+            if (this.isHomePage()) {
+                this.createPanel();
+                this.filterDirty = true;
+                this.lastRowCount = 0;
+                this.filterTopics();
+            } else {
+                this.removePanel();
+                this.showAllTopics();
+            }
+        }
+    }
+
     // ==================== 核心功能 ====================
 
     /** 当前运行的滚动定时器引用 */
@@ -952,6 +1861,36 @@
 
     /** 当前人类行为状态 */
     let humanBehaviorState = null;
+
+    /** 主页筛选工具实例 */
+    let homeSieveModule = null;
+
+    /** 初始化主页筛选工具（只初始化一次） */
+    function initHomeSieveTool() {
+        if (homeSieveModule) {
+            return;
+        }
+        homeSieveModule = new HomeSieveModule();
+        homeSieveModule.init();
+    }
+
+    /** 销毁主页筛选工具 */
+    function destroyHomeSieveTool() {
+        if (!homeSieveModule) {
+            return;
+        }
+        homeSieveModule.destroy();
+        homeSieveModule = null;
+    }
+
+    /** 按当前开关状态应用主页筛选功能 */
+    function applySieveToolState() {
+        if (getSieveSwitchState()) {
+            initHomeSieveTool();
+        } else {
+            destroyHomeSieveTool();
+        }
+    }
 
     /**
      * 加载并跳转到新页面
@@ -1085,8 +2024,12 @@
      */
     async function main() {
         // 创建控制开关按钮
-        await createSwitchIcon();
+        const autoSwitchButton = await createSwitchIcon();
+        await createSieveSwitchIcon(autoSwitchButton);
         updateRunningHaloVisibility();
+
+        // 初始化主页筛选工具（由筛选开关控制）
+        applySieveToolState();
         
         // 如果助手未启用，不执行后续操作
         if (!getSwitchState()) {
