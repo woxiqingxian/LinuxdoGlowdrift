@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.02.28.1313
+// @version      2026.02.28.1400
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 标签页独立开关 + 运行光圈）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -157,20 +157,12 @@
 
     /** 统一主题色（蓝色） */
     const UI_THEME = {
-        btnBorder: 'rgba(26, 78, 130, 0.22)',
-        btnBgStart: 'rgba(247, 250, 255, 0.95)',
-        btnBgEnd: 'rgba(229, 241, 255, 0.95)',
-        btnShadow: 'rgba(23, 78, 133, 0.16)',
-        btnText: '#15508a',
-        btnHoverBorder: 'rgba(36, 116, 196, 0.48)',
-        btnHoverShadow: 'rgba(30, 103, 182, 0.26)',
-        btnHoverText: '#0f67b5',
-        btnActiveBorder: 'rgba(33, 130, 226, 0.66)',
-        btnActiveBgStart: 'rgba(217, 237, 255, 0.98)',
-        btnActiveBgEnd: 'rgba(176, 216, 255, 0.98)',
-        btnActiveShadow: 'rgba(27, 117, 204, 0.34)',
-        btnActiveGlow: 'rgba(61, 151, 248, 0.24)',
-        btnActiveText: '#0f6fc0',
+        icon: '#1f74d8',
+        iconHover: '#185fb4',
+        btnSurface: 'rgba(31, 116, 216, 0.14)',
+        btnSurfaceHover: 'rgba(31, 116, 216, 0.22)',
+        btnBorder: 'rgba(31, 116, 216, 0.44)',
+        btnBorderHover: 'rgba(31, 116, 216, 0.62)',
         halo: '64, 149, 255'
     };
 
@@ -581,20 +573,20 @@
                 margin-left: 6px;
             }
             .linuxdo-helper-toggle-btn {
-                width: 34px;
-                height: 34px;
-                min-width: 34px;
-                min-height: 34px;
-                border-radius: 10px;
+                width: 38px;
+                height: 38px;
+                min-width: 38px;
+                min-height: 38px;
+                border-radius: 11px;
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
                 border: 1px solid ${UI_THEME.btnBorder};
-                background: linear-gradient(145deg, ${UI_THEME.btnBgStart}, ${UI_THEME.btnBgEnd});
+                background: ${UI_THEME.btnSurface} !important;
                 box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.70),
-                    0 3px 10px ${UI_THEME.btnShadow};
-                color: ${UI_THEME.btnText};
+                    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+                    0 1px 4px rgba(31, 116, 216, 0.15);
+                color: ${UI_THEME.icon} !important;
                 transition:
                     transform 140ms ease,
                     box-shadow 180ms ease,
@@ -605,29 +597,34 @@
             .linuxdo-helper-toggle-btn:hover,
             .linuxdo-helper-toggle-btn:focus-visible {
                 transform: translateY(-1px);
-                border-color: ${UI_THEME.btnHoverBorder};
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.78),
-                    0 7px 16px ${UI_THEME.btnHoverShadow};
-                color: ${UI_THEME.btnHoverText};
+                border-color: ${UI_THEME.btnBorderHover};
+                background: ${UI_THEME.btnSurfaceHover} !important;
+                box-shadow: 0 3px 10px rgba(31, 116, 216, 0.24);
+                color: ${UI_THEME.iconHover} !important;
             }
             .linuxdo-helper-toggle-btn.active {
-                border-color: ${UI_THEME.btnActiveBorder};
-                background: linear-gradient(145deg, ${UI_THEME.btnActiveBgStart}, ${UI_THEME.btnActiveBgEnd});
+                border-color: ${UI_THEME.btnBorderHover};
+                background: rgba(31, 116, 216, 0.20) !important;
                 box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.90),
-                    0 8px 18px ${UI_THEME.btnActiveShadow},
-                    0 0 0 2px ${UI_THEME.btnActiveGlow};
-                color: ${UI_THEME.btnActiveText};
+                    inset 0 0 0 1px rgba(255, 255, 255, 0.30),
+                    0 0 0 1px rgba(31, 116, 216, 0.18);
+                color: ${UI_THEME.icon} !important;
             }
             .linuxdo-helper-toggle-btn:active {
                 transform: translateY(0);
             }
             .linuxdo-helper-toggle-btn .linuxdo-helper-toggle-icon {
-                width: 15px;
-                height: 15px;
+                width: 23px;
+                height: 23px;
                 color: currentColor;
                 fill: currentColor !important;
+                stroke: currentColor !important;
+                opacity: 1;
+            }
+            .linuxdo-helper-toggle-btn .linuxdo-helper-toggle-icon use {
+                fill: currentColor !important;
+                stroke: currentColor !important;
+                opacity: 1;
             }
         `;
         document.head.appendChild(toggleStyle);
@@ -699,21 +696,77 @@
         halo.classList.toggle('active', enabled);
     }
 
+    /** 创建SVG子元素 */
+    function createSvgElement(tagName, attrs) {
+        const element = document.createElementNS('http://www.w3.org/2000/svg', tagName);
+        Object.entries(attrs).forEach(([key, value]) => element.setAttribute(key, value));
+        return element;
+    }
+
     /**
-     * 创建SVG图标元素
-     * @param {string} iconHref - 图标引用（如 '#play' 或 '#pause'）
+     * 创建SVG图标元素（机器人自动巡航风格）
+     * @param {'play'|'pause'} iconType - 图标类型
      * @returns {SVGElement} SVG元素
      */
-    function createSVGIcon(iconHref) {
+    function createSVGIcon(iconType) {
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('class', 'fa d-icon svg-icon prefix-icon svg-string linuxdo-helper-toggle-icon');
         svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-        
-        const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-        use.setAttribute('href', iconHref);
-        svg.appendChild(use);
-        
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('aria-hidden', 'true');
+
+        // 外环：强调“自动巡航”状态
+        svg.appendChild(createSvgElement('circle', {
+            cx: '12',
+            cy: '12',
+            r: '9.8',
+            fill: 'none',
+            stroke: 'currentColor',
+            'stroke-width': '2.3',
+            opacity: '0.92'
+        }));
+
+        // 左上角信号点：增强“机器人工作中”的识别感
+        svg.appendChild(createSvgElement('circle', {
+            cx: '7.3',
+            cy: '7.3',
+            r: '1.8',
+            fill: 'currentColor',
+            opacity: '0.86'
+        }));
+
+        if (iconType === 'pause') {
+            svg.appendChild(createSvgElement('rect', {
+                x: '8.1',
+                y: '7.5',
+                width: '3.4',
+                height: '9.0',
+                rx: '1.2',
+                fill: 'currentColor'
+            }));
+            svg.appendChild(createSvgElement('rect', {
+                x: '12.9',
+                y: '7.5',
+                width: '3.4',
+                height: '9.0',
+                rx: '1.2',
+                fill: 'currentColor'
+            }));
+        } else {
+            // 播放图标做轻微右偏，视觉上更“动”
+            svg.appendChild(createSvgElement('path', {
+                d: 'M9.2 7.2L17.8 12L9.2 16.8Z',
+                fill: 'currentColor'
+            }));
+        }
+
         return svg;
+    }
+
+    /** 统一更新按钮图标 */
+    function setToggleButtonIcon(buttonElement, isEnabled) {
+        buttonElement.querySelectorAll('.linuxdo-helper-toggle-icon').forEach((node) => node.remove());
+        buttonElement.appendChild(createSVGIcon(isEnabled ? 'pause' : 'play'));
     }
 
     /**
@@ -736,8 +789,7 @@
         iconLink.setAttribute('aria-label', iconLink.title);
         iconLink.classList.toggle('active', isEnabled);
         
-        const svg = createSVGIcon(isEnabled ? '#pause' : '#play');
-        iconLink.appendChild(svg);
+        setToggleButtonIcon(iconLink, isEnabled);
         iconLi.appendChild(iconLink);
 
         // 点击事件处理
@@ -749,8 +801,7 @@
             
             // 更新按钮状态
             const newState = getSwitchState();
-            const use = svg.querySelector('use');
-            use.setAttribute('href', newState ? '#pause' : '#play');
+            setToggleButtonIcon(iconLink, newState);
             iconLink.title = newState ? '停止Linuxdo助手' : '启动Linuxdo助手';
             iconLink.setAttribute('aria-label', iconLink.title);
             iconLink.classList.toggle('active', newState);
