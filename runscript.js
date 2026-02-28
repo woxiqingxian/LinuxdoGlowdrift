@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.02.28.1311
+// @version      2026.02.28.1313
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 标签页独立开关 + 运行光圈）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -153,6 +153,25 @@
         runningHalo: 'linuxdo-running-halo',
         runningHaloStyle: 'linuxdo-running-halo-style',
         toggleButtonStyle: 'linuxdo-toggle-button-style'
+    };
+
+    /** 统一主题色（蓝色） */
+    const UI_THEME = {
+        btnBorder: 'rgba(26, 78, 130, 0.22)',
+        btnBgStart: 'rgba(247, 250, 255, 0.95)',
+        btnBgEnd: 'rgba(229, 241, 255, 0.95)',
+        btnShadow: 'rgba(23, 78, 133, 0.16)',
+        btnText: '#15508a',
+        btnHoverBorder: 'rgba(36, 116, 196, 0.48)',
+        btnHoverShadow: 'rgba(30, 103, 182, 0.26)',
+        btnHoverText: '#0f67b5',
+        btnActiveBorder: 'rgba(33, 130, 226, 0.66)',
+        btnActiveBgStart: 'rgba(217, 237, 255, 0.98)',
+        btnActiveBgEnd: 'rgba(176, 216, 255, 0.98)',
+        btnActiveShadow: 'rgba(27, 117, 204, 0.34)',
+        btnActiveGlow: 'rgba(61, 151, 248, 0.24)',
+        btnActiveText: '#0f6fc0',
+        halo: '64, 149, 255'
     };
 
     /** 元素等待超时时间（毫秒） */
@@ -570,12 +589,12 @@
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
-                border: 1px solid rgba(26, 64, 48, 0.22);
-                background: linear-gradient(145deg, rgba(247, 251, 249, 0.95), rgba(230, 243, 237, 0.95));
+                border: 1px solid ${UI_THEME.btnBorder};
+                background: linear-gradient(145deg, ${UI_THEME.btnBgStart}, ${UI_THEME.btnBgEnd});
                 box-shadow:
                     inset 0 1px 0 rgba(255, 255, 255, 0.70),
-                    0 3px 10px rgba(25, 84, 61, 0.16);
-                color: #15553c;
+                    0 3px 10px ${UI_THEME.btnShadow};
+                color: ${UI_THEME.btnText};
                 transition:
                     transform 140ms ease,
                     box-shadow 180ms ease,
@@ -586,20 +605,20 @@
             .linuxdo-helper-toggle-btn:hover,
             .linuxdo-helper-toggle-btn:focus-visible {
                 transform: translateY(-1px);
-                border-color: rgba(37, 122, 88, 0.48);
+                border-color: ${UI_THEME.btnHoverBorder};
                 box-shadow:
                     inset 0 1px 0 rgba(255, 255, 255, 0.78),
-                    0 7px 16px rgba(30, 128, 88, 0.26);
-                color: #0f6b49;
+                    0 7px 16px ${UI_THEME.btnHoverShadow};
+                color: ${UI_THEME.btnHoverText};
             }
             .linuxdo-helper-toggle-btn.active {
-                border-color: rgba(30, 146, 98, 0.66);
-                background: linear-gradient(145deg, rgba(217, 249, 235, 0.98), rgba(177, 240, 214, 0.98));
+                border-color: ${UI_THEME.btnActiveBorder};
+                background: linear-gradient(145deg, ${UI_THEME.btnActiveBgStart}, ${UI_THEME.btnActiveBgEnd});
                 box-shadow:
                     inset 0 1px 0 rgba(255, 255, 255, 0.90),
-                    0 8px 18px rgba(24, 161, 101, 0.34),
-                    0 0 0 2px rgba(54, 206, 129, 0.24);
-                color: #0f8d57;
+                    0 8px 18px ${UI_THEME.btnActiveShadow},
+                    0 0 0 2px ${UI_THEME.btnActiveGlow};
+                color: ${UI_THEME.btnActiveText};
             }
             .linuxdo-helper-toggle-btn:active {
                 transform: translateY(0);
@@ -607,7 +626,8 @@
             .linuxdo-helper-toggle-btn .linuxdo-helper-toggle-icon {
                 width: 15px;
                 height: 15px;
-                fill: currentColor;
+                color: currentColor;
+                fill: currentColor !important;
             }
         `;
         document.head.appendChild(toggleStyle);
@@ -625,17 +645,17 @@
                 @keyframes linuxdo-running-halo-pulse {
                     0% {
                         box-shadow:
-                            inset 0 0 0 2px rgba(60, 214, 130, 0.50),
-                            inset 0 0 72px rgba(60, 214, 130, 0.18),
-                            0 0 26px rgba(60, 214, 130, 0.34),
-                            0 0 80px rgba(60, 214, 130, 0.16);
+                            inset 0 0 0 2px rgba(${UI_THEME.halo}, 0.50),
+                            inset 0 0 72px rgba(${UI_THEME.halo}, 0.18),
+                            0 0 26px rgba(${UI_THEME.halo}, 0.34),
+                            0 0 80px rgba(${UI_THEME.halo}, 0.16);
                     }
                     100% {
                         box-shadow:
-                            inset 0 0 0 4px rgba(60, 214, 130, 0.86),
-                            inset 0 0 180px rgba(60, 214, 130, 0.30),
-                            0 0 58px rgba(60, 214, 130, 0.62),
-                            0 0 140px rgba(60, 214, 130, 0.30);
+                            inset 0 0 0 4px rgba(${UI_THEME.halo}, 0.86),
+                            inset 0 0 180px rgba(${UI_THEME.halo}, 0.30),
+                            0 0 58px rgba(${UI_THEME.halo}, 0.62),
+                            0 0 140px rgba(${UI_THEME.halo}, 0.30);
                     }
                 }
                 #${UI_IDS.runningHalo} {
@@ -644,8 +664,8 @@
                     pointer-events: none;
                     z-index: 2147483646;
                     background:
-                        radial-gradient(circle at 50% 50%, rgba(60, 214, 130, 0.06) 0%, rgba(60, 214, 130, 0.00) 62%),
-                        linear-gradient(0deg, rgba(60, 214, 130, 0.08), rgba(60, 214, 130, 0.08));
+                        radial-gradient(circle at 50% 50%, rgba(${UI_THEME.halo}, 0.06) 0%, rgba(${UI_THEME.halo}, 0.00) 62%),
+                        linear-gradient(0deg, rgba(${UI_THEME.halo}, 0.08), rgba(${UI_THEME.halo}, 0.08));
                     opacity: 0;
                     transition: opacity 220ms ease-out;
                 }
