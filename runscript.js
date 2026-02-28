@@ -1,15 +1,15 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
-// @namespace    http://tampermonkey.net/
-// @version      2026.02.28.1301
+// @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
+// @version      2026.02.28.1311
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 标签页独立开关 + 运行光圈）
 // @author       Cressida
 // @match        https://linux.do/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @run-at       document-idle
-// @downloadURL https://update.greasyfork.org/scripts/556858/Linuxdo%E6%B4%BB%E8%B7%83.user.js
-// @updateURL https://update.greasyfork.org/scripts/556858/Linuxdo%E6%B4%BB%E8%B7%83.meta.js
+// @downloadURL  https://raw.githubusercontent.com/woxiqingxian/LinuxdoGlowdrift/main/runscript.js
+// @updateURL    https://raw.githubusercontent.com/woxiqingxian/LinuxdoGlowdrift/main/runscript.js
 // ==/UserScript==
 
 /*
