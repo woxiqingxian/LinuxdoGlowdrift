@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.02.28.1429
-// @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 标签页独立开关 + 运行光圈）
+// @version      2026.02.28.1458
+// @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 双开关控制）
 // @author       Cressida
 // @match        https://linux.do/*
 // @grant        GM_setValue
@@ -13,29 +13,7 @@
 // ==/UserScript==
 
 /*
- * Script: Linuxdo流光漫游
- * Purpose:
- * - 在 linux.do 内进行“人类行为模拟”的自动浏览（非固定速度）
- * - 自动模式与手动模式按“标签页”隔离，可同时开两个窗口分别使用
- * - 运行时用全页光圈提示，便于识别当前窗口是否在自动执行
- *
- * Core Behaviors:
- * - 行为状态机：scan/read/pause 动态切换
- * - 动态速度曲线：ramp/hill/zigzag + 节拍漂移 + 微停顿/回看
- * - 链接决策延迟：发现可跳转链接后按当前阅读状态模拟“思考时间”
- *
- * Storage Design:
- * - sessionStorage:
- *   - linuxdoHelperEnabledInTab (当前标签页是否启用自动模式)
- * - localStorage:
- *   - visitedLinks (已访问链接记录)
- * - GM storage:
- *   - linuxdoHelperBaseConfig (基础参数)
- *
- * Maintenance Rules:
- * - 任何脚本改动都必须同步更新 @version。
- * - @version 格式固定为 YYYY.MM.DD.HHmm（精确到分钟）。
- * - 如同一分钟内有多次改动，至少在下一次提交时刷新到新的分钟版本号。
+ * 维护说明统一放在 README.md，本文件仅保留必要元信息与实现代码。
  */
 
 (function () {
@@ -222,6 +200,23 @@
 
     /** 元素等待超时时间（毫秒） */
     const ELEMENT_WAIT_TIMEOUT = 2000;
+
+    /** 手动浏览时接近底部自动加载配置 */
+    const NEAR_BOTTOM_AUTO_LOAD_CONFIG = {
+        nearBottomViewportRatio: 0.5,
+        minTriggerGapMs: 1000,
+        fallbackCheckIntervalMs: 1400,
+        triggerSelectors: [
+            '.topic-list .show-more a',
+            '.topic-list .show-more button',
+            '.show-more a',
+            '.show-more button',
+            '.load-more',
+            'button.load-more',
+            'a.load-more',
+            '.more-topics a'
+        ]
+    };
 
     // ==================== 配置管理 ====================
 
@@ -1127,6 +1122,117 @@
             .filter(link => link.href);
     }
 
+    /** 归一化路径，避免尾随斜杠导致匹配失败 */
+    function normalizePathname(pathname) {
+        if (!pathname || pathname === '/') {
+            return '/';
+        }
+        const normalized = pathname.replace(/\/+$/, '');
+        return normalized || '/';
+    }
+
+    /** 是否为帖子列表页（首页/最新/热门/新帖） */
+    function isTopicListPath() {
+        const path = normalizePathname(window.location.pathname);
+        return SIEVE_CONFIG.paths.includes(path);
+    }
+
+    /** 候选“加载更多”按钮是否可点击 */
+    function isUsableLoadTrigger(element) {
+        if (!(element instanceof HTMLElement)) {
+            return false;
+        }
+        if (element.matches('[disabled], .disabled, [aria-disabled="true"]')) {
+            return false;
+        }
+        return element.getClientRects().length > 0;
+    }
+
+    /** 查找页面中的“加载更多”触发元素 */
+    function findNearBottomLoadTrigger() {
+        for (const selector of NEAR_BOTTOM_AUTO_LOAD_CONFIG.triggerSelectors) {
+            const element = document.querySelector(selector);
+            if (isUsableLoadTrigger(element)) {
+                return element;
+            }
+        }
+
+        const textPattern = /加载更多|更多话题|show\s*more|load\s*more/i;
+        const candidates = document.querySelectorAll('button, a');
+        for (const element of candidates) {
+            if (!isUsableLoadTrigger(element)) {
+                continue;
+            }
+            const hintText = [
+                element.textContent || '',
+                element.getAttribute('title') || '',
+                element.getAttribute('aria-label') || ''
+            ].join(' ');
+            if (textPattern.test(hintText)) {
+                return element;
+            }
+        }
+
+        return null;
+    }
+
+    /** 接近底部时自动触发加载（用于手动浏览与自动漫游） */
+    function tryAutoLoadNearBottom() {
+        if (!isTopicListPath()) {
+            return false;
+        }
+
+        const scrollingElement = document.scrollingElement || document.documentElement;
+        if (!scrollingElement) {
+            return false;
+        }
+
+        const remainingPx =
+            scrollingElement.scrollHeight -
+            (scrollingElement.scrollTop + scrollingElement.clientHeight);
+        const nearBottomThresholdPx =
+            scrollingElement.clientHeight * NEAR_BOTTOM_AUTO_LOAD_CONFIG.nearBottomViewportRatio;
+        if (remainingPx > nearBottomThresholdPx) {
+            return false;
+        }
+
+        const now = Date.now();
+        if (now - nearBottomAutoLoadLastTriggerAt < NEAR_BOTTOM_AUTO_LOAD_CONFIG.minTriggerGapMs) {
+            return false;
+        }
+        nearBottomAutoLoadLastTriggerAt = now;
+
+        const trigger = findNearBottomLoadTrigger();
+        if (trigger) {
+            trigger.click();
+            console.log('接近底部，已自动触发加载更多');
+            return true;
+        }
+
+        // 某些场景依赖滚动事件触发懒加载，兜底主动发一次。
+        window.dispatchEvent(new Event('scroll'));
+        return false;
+    }
+
+    /** 初始化“接近底部自动加载”（不依赖助手开关） */
+    function initNearBottomAutoLoad() {
+        if (nearBottomAutoLoadBound) {
+            return;
+        }
+
+        nearBottomAutoLoadBound = true;
+        const onCheck = () => {
+            tryAutoLoadNearBottom();
+        };
+
+        window.addEventListener('scroll', onCheck, { passive: true });
+        document.addEventListener('scroll', onCheck, { passive: true });
+        nearBottomAutoLoadTimer = window.setInterval(
+            onCheck,
+            NEAR_BOTTOM_AUTO_LOAD_CONFIG.fallbackCheckIntervalMs
+        );
+    }
+
     // ==================== 主页筛选工具 ====================
 
     /**
@@ -1865,6 +1971,15 @@
     /** 主页筛选工具实例 */
     let homeSieveModule = null;
 
+    /** 接近底部自动加载监听是否已绑定 */
+    let nearBottomAutoLoadBound = false;
+
+    /** 上次触发接近底部自动加载的时间 */
+    let nearBottomAutoLoadLastTriggerAt = 0;
+
+    /** 接近底部自动加载兜底轮询定时器 */
+    let nearBottomAutoLoadTimer = null;
+
     /** 初始化主页筛选工具（只初始化一次） */
     function initHomeSieveTool() {
         if (homeSieveModule) {
@@ -1973,6 +2088,8 @@
                 commentElement.dispatchEvent(new Event('scroll'));
             }
 
+            tryAutoLoadNearBottom();
+
             // 检查是否有链接
             const links = getRawLinks();
             if (links.length > 0) {
@@ -2027,6 +2144,9 @@
         const autoSwitchButton = await createSwitchIcon();
         await createSieveSwitchIcon(autoSwitchButton);
         updateRunningHaloVisibility();
+
+        // 始终启用“接近底部自动加载”，支持手动浏览场景
+        initNearBottomAutoLoad();
 
         // 初始化主页筛选工具（由筛选开关控制）
         applySieveToolState();
