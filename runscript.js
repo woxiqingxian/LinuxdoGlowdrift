@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.02.28.1458
+// @version      2026.03.03.0925
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 双开关控制）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -123,7 +123,8 @@
     const SESSION_KEYS = {
         enabled: 'linuxdoHelperEnabledInTab',
         migrated: 'linuxdoHelperLegacySwitchMigrated',
-        sieveEnabled: 'linuxdoSieveEnabledInTab'
+        sieveEnabled: 'linuxdoSieveEnabledInTab',
+        startedAt: 'linuxdoHelperStartedAtInTab'
     };
 
     /** 页面URL */
@@ -201,6 +202,9 @@
     /** 元素等待超时时间（毫秒） */
     const ELEMENT_WAIT_TIMEOUT = 2000;
 
+    /** 漫游最长运行时长（毫秒，1.5小时） */
+    const MAX_ROAM_DURATION_MS = 90 * 60 * 1000;
+
     /** 手动浏览时接近底部自动加载配置 */
     const NEAR_BOTTOM_AUTO_LOAD_CONFIG = {
         nearBottomViewportRatio: 0.5,
@@ -222,6 +226,7 @@
 
     /** 基础配置（用于速度比例计算） */
     let baseConfig = null;
+    let autoStopTimer = null;
 
     /**
      * 获取基础配置（从存储中读取，如果没有则使用默认值）
@@ -567,6 +572,26 @@
         }
     }
 
+    /** 设置当前标签页漫游起始时间戳 */
+    function setRoamStartTime(timestampMs) {
+        sessionStorage.setItem(SESSION_KEYS.startedAt, String(timestampMs));
+    }
+
+    /** 获取当前标签页漫游起始时间戳 */
+    function getRoamStartTime() {
+        const raw = sessionStorage.getItem(SESSION_KEYS.startedAt);
+        const parsed = Number(raw);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+            return null;
+        }
+        return parsed;
+    }
+
+    /** 清理当前标签页漫游起始时间戳 */
+    function clearRoamStartTime() {
+        sessionStorage.removeItem(SESSION_KEYS.startedAt);
+    }
+
     /**
      * 设置当前标签页开关状态
      * @param {boolean} enabled - 是否启用
@@ -574,6 +599,13 @@
     function setSwitchState(enabled) {
         migrateLegacySwitchState();
         sessionStorage.setItem(SESSION_KEYS.enabled, enabled ? '1' : '0');
+        if (enabled) {
+            if (getRoamStartTime() === null) {
+                setRoamStartTime(Date.now());
+            }
+        } else {
+            clearRoamStartTime();
+        }
     }
 
     /**
@@ -635,13 +667,60 @@
         updateRunningHaloVisibility(newState);
 
         if (newState) {
+            scheduleAutoStop();
             // 启用时跳转到新帖子页面
             window.location.href = URLS.newPosts;
         } else {
             // 关闭时立即停止滚动
+            clearAutoStopTimer();
             stopScrolling();
         }
         console.log(`Linuxdo助手已${newState ? '启用' : '禁用'}`);
+    }
+
+    /** 清理漫游自动关闭计时器 */
+    function clearAutoStopTimer() {
+        if (autoStopTimer) {
+            clearTimeout(autoStopTimer);
+            autoStopTimer = null;
+        }
+    }
+
+    /** 安排漫游超时自动关闭 */
+    function scheduleAutoStop() {
+        clearAutoStopTimer();
+        let roamStartTime = getRoamStartTime();
+        if (roamStartTime === null) {
+            roamStartTime = Date.now();
+            setRoamStartTime(roamStartTime);
+        }
+
+        const elapsedMs = Date.now() - roamStartTime;
+        const remainingMs = MAX_ROAM_DURATION_MS - elapsedMs;
+        if (remainingMs <= 0) {
+            if (!getSwitchState()) {
+                return;
+            }
+            setSwitchState(false);
+            updateRunningHaloVisibility(false);
+            stopScrolling();
+            syncAutoSwitchButtonState(false);
+            autoStopTimer = null;
+            console.log('漫游已运行超过1.5小时，已自动关闭。');
+            return;
+        }
+
+        autoStopTimer = window.setTimeout(() => {
+            if (!getSwitchState()) {
+                return;
+            }
+            setSwitchState(false);
+            updateRunningHaloVisibility(false);
+            stopScrolling();
+            syncAutoSwitchButtonState(false);
+            autoStopTimer = null;
+            console.log('漫游已运行超过1.5小时，已自动关闭。');
+        }, remainingMs);
     }
 
     // ==================== UI 组件创建 ====================
@@ -858,6 +937,18 @@
         buttonElement.appendChild(createSVGIcon(isEnabled ? 'pause' : 'play'));
     }
 
+    /** 同步自动漫游开关按钮状态（用于超时自动关闭场景） */
+    function syncAutoSwitchButtonState(enabled) {
+        const button = document.querySelector('.linuxdo-helper-auto-toggle-btn');
+        if (!button) {
+            return;
+        }
+        setToggleButtonIcon(button, enabled);
+        button.title = enabled ? '停止Linuxdo助手' : '启动Linuxdo助手';
+        button.setAttribute('aria-label', button.title);
+        button.classList.toggle('active', enabled);
+    }
+
     /**
      * 创建筛选开关图标
      * @param {boolean} enabled - 是否启用
@@ -907,7 +998,7 @@
         
         const iconLink = document.createElement('a');
         iconLink.href = '#';
-        iconLink.className = 'btn no-text icon btn-flat linuxdo-helper-toggle-btn';
+        iconLink.className = 'btn no-text icon btn-flat linuxdo-helper-toggle-btn linuxdo-helper-auto-toggle-btn';
         iconLink.tabIndex = 0;
         
         const isEnabled = getSwitchState();
@@ -2153,8 +2244,12 @@
         
         // 如果助手未启用，不执行后续操作
         if (!getSwitchState()) {
+            clearAutoStopTimer();
+            clearRoamStartTime();
             return;
         }
+
+        scheduleAutoStop();
 
         // 启动自动滚动
         startAutoScroll();
