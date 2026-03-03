@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.03.03.0925
+// @version      2026.03.03.1234
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 双开关控制）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -113,6 +113,8 @@
         enabled: 'linuxdoHelperEnabled', // 旧版全局开关（仅用于迁移清理）
         baseConfig: 'linuxdoHelperBaseConfig',
         visitedLinks: 'visitedLinks',
+        roamHistoryMs: 'linuxdoRoamHistoryMs',
+        roamTodayStat: 'linuxdoRoamTodayStat',
         sieveLevels: 'linuxdoSieveLevels',
         sieveCats: 'linuxdoSieveCats',
         sieveTags: 'linuxdoSieveTags',
@@ -124,7 +126,8 @@
         enabled: 'linuxdoHelperEnabledInTab',
         migrated: 'linuxdoHelperLegacySwitchMigrated',
         sieveEnabled: 'linuxdoSieveEnabledInTab',
-        startedAt: 'linuxdoHelperStartedAtInTab'
+        startedAt: 'linuxdoHelperStartedAtInTab',
+        accountedAt: 'linuxdoHelperAccountedAtInTab'
     };
 
     /** 页面URL */
@@ -136,7 +139,9 @@
     const UI_IDS = {
         runningHalo: 'linuxdo-running-halo',
         runningHaloStyle: 'linuxdo-running-halo-style',
-        toggleButtonStyle: 'linuxdo-toggle-button-style'
+        toggleButtonStyle: 'linuxdo-toggle-button-style',
+        roamDurationReminder: 'linuxdo-roam-duration-reminder',
+        roamDurationReminderStyle: 'linuxdo-roam-duration-reminder-style'
     };
 
     /** 统一主题色（蓝色） */
@@ -204,6 +209,7 @@
 
     /** 漫游最长运行时长（毫秒，1.5小时） */
     const MAX_ROAM_DURATION_MS = 90 * 60 * 1000;
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
     /** 手动浏览时接近底部自动加载配置 */
     const NEAR_BOTTOM_AUTO_LOAD_CONFIG = {
@@ -227,6 +233,7 @@
     /** 基础配置（用于速度比例计算） */
     let baseConfig = null;
     let autoStopTimer = null;
+    let roamDurationReminderTimer = null;
 
     /**
      * 获取基础配置（从存储中读取，如果没有则使用默认值）
@@ -686,6 +693,14 @@
         }
     }
 
+    /** 清理“已漫游时长”提醒计时器 */
+    function clearRoamDurationReminderTimer() {
+        if (roamDurationReminderTimer) {
+            clearInterval(roamDurationReminderTimer);
+            roamDurationReminderTimer = null;
+        }
+    }
+
     /** 安排漫游超时自动关闭 */
     function scheduleAutoStop() {
         clearAutoStopTimer();
@@ -850,6 +865,96 @@
         }
     }
 
+    /** 将时长格式化为 HH:MM:SS（均为两位） */
+    function formatDurationAsClock(durationMs) {
+        const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        const pad2 = (value) => String(value).padStart(2, '0');
+        return `${pad2(hours)}:${pad2(minutes)}:${pad2(seconds)}`;
+    }
+
+    /** 确保“已漫游时长”提醒元素存在 */
+    function ensureRoamDurationReminder() {
+        let reminderStyle = document.getElementById(UI_IDS.roamDurationReminderStyle);
+        if (!reminderStyle) {
+            reminderStyle = document.createElement('style');
+            reminderStyle.id = UI_IDS.roamDurationReminderStyle;
+            reminderStyle.textContent = `
+                #${UI_IDS.roamDurationReminder} {
+                    position: fixed;
+                    left: 50%;
+                    top: 50%;
+                    transform: translate(-50%, -50%);
+                    pointer-events: none;
+                    z-index: 2147483647;
+                    font-size: clamp(34px, 6vw, 72px);
+                    font-weight: 800;
+                    line-height: 1;
+                    letter-spacing: 0.06em;
+                    color: rgba(255, 255, 255, 0.96);
+                    text-shadow:
+                        0 0 22px rgba(0, 0, 0, 0.45),
+                        0 0 36px rgba(${UI_THEME.halo}, 0.52);
+                    opacity: 0;
+                    transition: opacity 220ms ease-out;
+                }
+                #${UI_IDS.roamDurationReminder}.active {
+                    opacity: 1;
+                }
+            `;
+            document.head.appendChild(reminderStyle);
+        }
+
+        let reminder = document.getElementById(UI_IDS.roamDurationReminder);
+        if (!reminder) {
+            reminder = document.createElement('div');
+            reminder.id = UI_IDS.roamDurationReminder;
+            reminder.textContent = '已漫游 00:00:00';
+            document.body.appendChild(reminder);
+        }
+    }
+
+    /** 更新“已漫游时长”提醒显示状态 */
+    function updateRoamDurationReminderVisibility(enabledState) {
+        ensureRoamDurationReminder();
+        const reminder = document.getElementById(UI_IDS.roamDurationReminder);
+        if (!reminder) {
+            return;
+        }
+
+        const enabled = typeof enabledState === 'boolean' ? enabledState : getSwitchState();
+        if (!enabled) {
+            clearRoamDurationReminderTimer();
+            reminder.classList.remove('active');
+            reminder.textContent = '已漫游 00:00:00';
+            return;
+        }
+
+        let roamStartTime = getRoamStartTime();
+        if (roamStartTime === null) {
+            roamStartTime = Date.now();
+            setRoamStartTime(roamStartTime);
+        }
+
+        const refreshText = () => {
+            const elapsedMs = Date.now() - roamStartTime;
+            reminder.textContent = `已漫游 ${formatDurationAsClock(elapsedMs)}`;
+        };
+
+        refreshText();
+        reminder.classList.add('active');
+        clearRoamDurationReminderTimer();
+        roamDurationReminderTimer = window.setInterval(() => {
+            if (!getSwitchState()) {
+                updateRoamDurationReminderVisibility(false);
+                return;
+            }
+            refreshText();
+        }, 1000);
+    }
+
     /**
      * 更新运行状态光圈显示状态
      * @param {boolean} [enabledState] - 可选，指定状态；不传则读取当前开关
@@ -862,6 +967,7 @@
         }
         const enabled = typeof enabledState === 'boolean' ? enabledState : getSwitchState();
         halo.classList.toggle('active', enabled);
+        updateRoamDurationReminderVisibility(enabled);
     }
 
     /** 创建SVG子元素 */
