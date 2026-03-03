@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.03.03.1234
+// @version      2026.03.03.1238
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 双开关控制）
 // @author       Cressida
 // @match        https://linux.do/*
