@@ -6,7 +6,7 @@
 
 - 默认人类自动浏览：按 scan/read/pause 节奏滚动与停顿，减少机械感，模拟更自然的浏览过程。
 - 漫游超时自动关闭：单标签页内从启动开始累计运行满 1.5 小时后自动关闭，避免忘记停止。
-- 漫游时长大字提醒：页面中间实时显示 `已漫游 XX:XX:XX`（时分秒均两位）。
+- 漫游时长大字提醒：页面中间实时显示三行累计时长（历史/今天/本次），均为 `XX:XX:XX` 两位格式。
 - 主页筛选工具：在首页按等级、分类、标签筛选帖子，并支持保存/加载筛选预设。
 - 浏览帖子底部自动加载：接近列表底部时自动触发“加载更多”，减少手动点按与翻页中断。
 
@@ -43,7 +43,10 @@
 - 漫游开关（播放/暂停图标）：
   - 开启后自动进入漫游流程（滚动 + 链接跳转）
   - 开启后会记录本标签页启动时间，累计运行超过 1.5 小时自动关闭
-  - 开启后页面中间显示大字提醒：`已漫游 XX:XX:XX`
+  - 开启后页面中间显示大字提醒：
+    - `历史累计漫游：XX:XX:XX`
+    - `今天累计漫游：XX:XX:XX`
+    - `本次累计漫游：XX:XX:XX`
   - 关闭后立即停止自动滚动
 - 筛选开关（漏斗图标）：
   - 开启后在首页列表上方显示筛选面板
@@ -68,11 +71,14 @@
 - `sessionStorage`
   - `linuxdoHelperEnabledInTab`: 当前标签页开关状态
   - `linuxdoHelperStartedAtInTab`: 当前标签页漫游启动时间戳（用于 1.5 小时超时自动关闭）
+  - `linuxdoHelperAccountedAtInTab`: 当前标签页上次累计结算时间戳（用于持续累计）
   - `linuxdoSieveEnabledInTab`: 当前标签页筛选开关状态
 - `localStorage`
   - `visitedLinks`: 已访问链接列表
 - `GM_setValue / GM_getValue`
   - `linuxdoHelperBaseConfig`: 基础参数
+  - `linuxdoRoamHistoryMs`: 历史累计漫游时长（毫秒）
+  - `linuxdoRoamTodayStat`: 今日累计漫游信息（日期 + 毫秒）
   - `linuxdoSieveLevels`: 筛选等级选中项
   - `linuxdoSieveCats`: 筛选分类选中项
   - `linuxdoSieveTags`: 筛选标签三态状态

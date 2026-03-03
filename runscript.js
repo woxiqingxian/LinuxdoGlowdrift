@@ -599,19 +599,162 @@
         sessionStorage.removeItem(SESSION_KEYS.startedAt);
     }
 
+    /** 设置当前标签页上次累计结算时间戳 */
+    function setRoamAccountedAt(timestampMs) {
+        sessionStorage.setItem(SESSION_KEYS.accountedAt, String(timestampMs));
+    }
+
+    /** 获取当前标签页上次累计结算时间戳 */
+    function getRoamAccountedAt() {
+        const raw = sessionStorage.getItem(SESSION_KEYS.accountedAt);
+        const parsed = Number(raw);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+            return null;
+        }
+        return parsed;
+    }
+
+    /** 清理当前标签页上次累计结算时间戳 */
+    function clearRoamAccountedAt() {
+        sessionStorage.removeItem(SESSION_KEYS.accountedAt);
+    }
+
+    /** 获取本地日期键（YYYY-MM-DD） */
+    function getDateKey(timestampMs) {
+        const date = new Date(timestampMs);
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    /** 获取当天零点时间戳 */
+    function getDayStartTimestamp(timestampMs) {
+        const date = new Date(timestampMs);
+        date.setHours(0, 0, 0, 0);
+        return date.getTime();
+    }
+
+    /** 读取历史累计漫游时长（毫秒） */
+    function readRoamHistoryMs() {
+        const value = Number(GM_getValue(STORAGE_KEYS.roamHistoryMs, 0));
+        return Number.isFinite(value) && value > 0 ? value : 0;
+    }
+
+    /** 保存历史累计漫游时长（毫秒） */
+    function saveRoamHistoryMs(durationMs) {
+        GM_setValue(STORAGE_KEYS.roamHistoryMs, Math.max(0, Math.floor(durationMs)));
+    }
+
+    /** 读取“今日累计”状态 */
+    function readRoamTodayStat(referenceTimestampMs = Date.now()) {
+        const todayKey = getDateKey(referenceTimestampMs);
+        const fallback = { date: todayKey, ms: 0 };
+        const rawValue = GM_getValue(STORAGE_KEYS.roamTodayStat, fallback);
+        if (!rawValue || typeof rawValue !== 'object') {
+            return fallback;
+        }
+
+        const savedDate = typeof rawValue.date === 'string' ? rawValue.date : todayKey;
+        const savedMs = Number(rawValue.ms);
+        const normalizedMs = Number.isFinite(savedMs) && savedMs > 0 ? Math.floor(savedMs) : 0;
+        if (savedDate !== todayKey) {
+            return { date: todayKey, ms: 0 };
+        }
+        return { date: savedDate, ms: normalizedMs };
+    }
+
+    /** 保存“今日累计”状态 */
+    function saveRoamTodayStat(stat) {
+        const date = typeof stat?.date === 'string' ? stat.date : getDateKey(Date.now());
+        const durationMs = Number(stat?.ms);
+        const safeMs = Number.isFinite(durationMs) && durationMs > 0 ? Math.floor(durationMs) : 0;
+        GM_setValue(STORAGE_KEYS.roamTodayStat, { date, ms: safeMs });
+    }
+
+    /** 将一段时长结算到“历史累计/今日累计” */
+    function addRoamDurationToStats(rangeStartMs, rangeEndMs) {
+        const startMs = Number(rangeStartMs);
+        const endMs = Number(rangeEndMs);
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+            return;
+        }
+
+        const deltaMs = endMs - startMs;
+        const historyMs = readRoamHistoryMs();
+        saveRoamHistoryMs(historyMs + deltaMs);
+
+        const todayStat = readRoamTodayStat(endMs);
+        const currentDayStart = getDayStartTimestamp(endMs);
+        const currentDayEnd = currentDayStart + ONE_DAY_MS;
+        const overlapStart = Math.max(startMs, currentDayStart);
+        const overlapEnd = Math.min(endMs, currentDayEnd);
+        const todayDeltaMs = Math.max(0, overlapEnd - overlapStart);
+        if (todayDeltaMs > 0) {
+            saveRoamTodayStat({
+                date: todayStat.date,
+                ms: todayStat.ms + todayDeltaMs
+            });
+        } else {
+            saveRoamTodayStat(todayStat);
+        }
+    }
+
+    /** 结算本标签页当前漫游区间 */
+    function syncRoamAccumulationCheckpoint(nowTimestampMs = Date.now(), force = false) {
+        if (!force && !getSwitchState()) {
+            return;
+        }
+
+        let roamStartTime = getRoamStartTime();
+        if (roamStartTime === null) {
+            roamStartTime = nowTimestampMs;
+            setRoamStartTime(roamStartTime);
+        }
+
+        let lastAccountedAt = getRoamAccountedAt();
+        if (lastAccountedAt === null || lastAccountedAt < roamStartTime) {
+            lastAccountedAt = roamStartTime;
+        }
+
+        if (nowTimestampMs <= lastAccountedAt) {
+            setRoamAccountedAt(lastAccountedAt);
+            return;
+        }
+
+        addRoamDurationToStats(lastAccountedAt, nowTimestampMs);
+        setRoamAccountedAt(nowTimestampMs);
+    }
+
     /**
      * 设置当前标签页开关状态
      * @param {boolean} enabled - 是否启用
      */
     function setSwitchState(enabled) {
         migrateLegacySwitchState();
-        sessionStorage.setItem(SESSION_KEYS.enabled, enabled ? '1' : '0');
         if (enabled) {
-            if (getRoamStartTime() === null) {
-                setRoamStartTime(Date.now());
+            const now = Date.now();
+            sessionStorage.setItem(SESSION_KEYS.enabled, '1');
+            let roamStartTime = getRoamStartTime();
+            if (roamStartTime === null) {
+                roamStartTime = now;
+                setRoamStartTime(roamStartTime);
+            }
+            const accountedAt = getRoamAccountedAt();
+            if (
+                accountedAt === null ||
+                accountedAt < roamStartTime ||
+                accountedAt > now
+            ) {
+                setRoamAccountedAt(roamStartTime);
             }
         } else {
+            if (getSwitchState()) {
+                syncRoamAccumulationCheckpoint(Date.now(), true);
+            }
+            sessionStorage.setItem(SESSION_KEYS.enabled, '0');
             clearRoamStartTime();
+            clearRoamAccountedAt();
         }
     }
 
@@ -889,10 +1032,12 @@
                     transform: translate(-50%, -50%);
                     pointer-events: none;
                     z-index: 2147483647;
-                    font-size: clamp(34px, 6vw, 72px);
+                    font-size: clamp(28px, 4.2vw, 52px);
                     font-weight: 800;
-                    line-height: 1;
-                    letter-spacing: 0.06em;
+                    line-height: 1.42;
+                    letter-spacing: 0.03em;
+                    white-space: pre-line;
+                    text-align: center;
                     color: rgba(255, 255, 255, 0.96);
                     text-shadow:
                         0 0 22px rgba(0, 0, 0, 0.45),
@@ -911,7 +1056,11 @@
         if (!reminder) {
             reminder = document.createElement('div');
             reminder.id = UI_IDS.roamDurationReminder;
-            reminder.textContent = '已漫游 00:00:00';
+            reminder.textContent = [
+                '历史累计漫游：00:00:00',
+                '今天累计漫游：00:00:00',
+                '本次累计漫游：00:00:00'
+            ].join('\n');
             document.body.appendChild(reminder);
         }
     }
@@ -928,7 +1077,11 @@
         if (!enabled) {
             clearRoamDurationReminderTimer();
             reminder.classList.remove('active');
-            reminder.textContent = '已漫游 00:00:00';
+            reminder.textContent = [
+                '历史累计漫游：00:00:00',
+                '今天累计漫游：00:00:00',
+                '本次累计漫游：00:00:00'
+            ].join('\n');
             return;
         }
 
@@ -936,11 +1089,20 @@
         if (roamStartTime === null) {
             roamStartTime = Date.now();
             setRoamStartTime(roamStartTime);
+            setRoamAccountedAt(roamStartTime);
         }
 
         const refreshText = () => {
-            const elapsedMs = Date.now() - roamStartTime;
-            reminder.textContent = `已漫游 ${formatDurationAsClock(elapsedMs)}`;
+            const now = Date.now();
+            syncRoamAccumulationCheckpoint(now);
+            const historyMs = readRoamHistoryMs();
+            const todayMs = readRoamTodayStat(now).ms;
+            const currentSessionMs = Math.max(0, now - roamStartTime);
+            reminder.textContent = [
+                `历史累计漫游：${formatDurationAsClock(historyMs)}`,
+                `今天累计漫游：${formatDurationAsClock(todayMs)}`,
+                `本次累计漫游：${formatDurationAsClock(currentSessionMs)}`
+            ].join('\n');
         };
 
         refreshText();
@@ -2352,6 +2514,7 @@
         if (!getSwitchState()) {
             clearAutoStopTimer();
             clearRoamStartTime();
+            clearRoamAccountedAt();
             return;
         }
 
@@ -2360,6 +2523,11 @@
         // 启动自动滚动
         startAutoScroll();
     }
+
+    // 页面切换/刷新时及时结算，避免累计时长丢失
+    window.addEventListener('pagehide', () => {
+        syncRoamAccumulationCheckpoint(Date.now());
+    });
 
     // 页面加载完成后执行
     if (document.readyState === 'complete') {
