@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.03.03.1238
+// @version      2026.03.04.1143
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 双开关控制）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -210,23 +210,6 @@
     /** 漫游最长运行时长（毫秒，1.5小时） */
     const MAX_ROAM_DURATION_MS = 90 * 60 * 1000;
     const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-
-    /** 手动浏览时接近底部自动加载配置 */
-    const NEAR_BOTTOM_AUTO_LOAD_CONFIG = {
-        nearBottomViewportRatio: 0.5,
-        minTriggerGapMs: 1000,
-        fallbackCheckIntervalMs: 1400,
-        triggerSelectors: [
-            '.topic-list .show-more a',
-            '.topic-list .show-more button',
-            '.show-more a',
-            '.show-more button',
-            '.load-more',
-            'button.load-more',
-            'a.load-more',
-            '.more-topics a'
-        ]
-    };
 
     // ==================== 配置管理 ====================
 
@@ -1481,117 +1464,6 @@
             .filter(link => link.href);
     }
 
-    /** 归一化路径，避免尾随斜杠导致匹配失败 */
-    function normalizePathname(pathname) {
-        if (!pathname || pathname === '/') {
-            return '/';
-        }
-        const normalized = pathname.replace(/\/+$/, '');
-        return normalized || '/';
-    }
-
-    /** 是否为帖子列表页（首页/最新/热门/新帖） */
-    function isTopicListPath() {
-        const path = normalizePathname(window.location.pathname);
-        return SIEVE_CONFIG.paths.includes(path);
-    }
-
-    /** 候选“加载更多”按钮是否可点击 */
-    function isUsableLoadTrigger(element) {
-        if (!(element instanceof HTMLElement)) {
-            return false;
-        }
-        if (element.matches('[disabled], .disabled, [aria-disabled="true"]')) {
-            return false;
-        }
-        return element.getClientRects().length > 0;
-    }
-
-    /** 查找页面中的“加载更多”触发元素 */
-    function findNearBottomLoadTrigger() {
-        for (const selector of NEAR_BOTTOM_AUTO_LOAD_CONFIG.triggerSelectors) {
-            const element = document.querySelector(selector);
-            if (isUsableLoadTrigger(element)) {
-                return element;
-            }
-        }
-
-        const textPattern = /加载更多|更多话题|show\s*more|load\s*more/i;
-        const candidates = document.querySelectorAll('button, a');
-        for (const element of candidates) {
-            if (!isUsableLoadTrigger(element)) {
-                continue;
-            }
-            const hintText = [
-                element.textContent || '',
-                element.getAttribute('title') || '',
-                element.getAttribute('aria-label') || ''
-            ].join(' ');
-            if (textPattern.test(hintText)) {
-                return element;
-            }
-        }
-
-        return null;
-    }
-
-    /** 接近底部时自动触发加载（用于手动浏览与自动漫游） */
-    function tryAutoLoadNearBottom() {
-        if (!isTopicListPath()) {
-            return false;
-        }
-
-        const scrollingElement = document.scrollingElement || document.documentElement;
-        if (!scrollingElement) {
-            return false;
-        }
-
-        const remainingPx =
-            scrollingElement.scrollHeight -
-            (scrollingElement.scrollTop + scrollingElement.clientHeight);
-        const nearBottomThresholdPx =
-            scrollingElement.clientHeight * NEAR_BOTTOM_AUTO_LOAD_CONFIG.nearBottomViewportRatio;
-        if (remainingPx > nearBottomThresholdPx) {
-            return false;
-        }
-
-        const now = Date.now();
-        if (now - nearBottomAutoLoadLastTriggerAt < NEAR_BOTTOM_AUTO_LOAD_CONFIG.minTriggerGapMs) {
-            return false;
-        }
-        nearBottomAutoLoadLastTriggerAt = now;
-
-        const trigger = findNearBottomLoadTrigger();
-        if (trigger) {
-            trigger.click();
-            console.log('接近底部，已自动触发加载更多');
-            return true;
-        }
-
-        // 某些场景依赖滚动事件触发懒加载，兜底主动发一次。
-        window.dispatchEvent(new Event('scroll'));
-        return false;
-    }
-
-    /** 初始化“接近底部自动加载”（不依赖助手开关） */
-    function initNearBottomAutoLoad() {
-        if (nearBottomAutoLoadBound) {
-            return;
-        }
-
-        nearBottomAutoLoadBound = true;
-        const onCheck = () => {
-            tryAutoLoadNearBottom();
-        };
-
-        window.addEventListener('scroll', onCheck, { passive: true });
-        document.addEventListener('scroll', onCheck, { passive: true });
-        nearBottomAutoLoadTimer = window.setInterval(
-            onCheck,
-            NEAR_BOTTOM_AUTO_LOAD_CONFIG.fallbackCheckIntervalMs
-        );
-    }
-
     // ==================== 主页筛选工具 ====================
 
     /**
@@ -2330,15 +2202,6 @@
     /** 主页筛选工具实例 */
     let homeSieveModule = null;
 
-    /** 接近底部自动加载监听是否已绑定 */
-    let nearBottomAutoLoadBound = false;
-
-    /** 上次触发接近底部自动加载的时间 */
-    let nearBottomAutoLoadLastTriggerAt = 0;
-
-    /** 接近底部自动加载兜底轮询定时器 */
-    let nearBottomAutoLoadTimer = null;
-
     /** 初始化主页筛选工具（只初始化一次） */
     function initHomeSieveTool() {
         if (homeSieveModule) {
@@ -2447,8 +2310,6 @@
                 commentElement.dispatchEvent(new Event('scroll'));
             }
 
-            tryAutoLoadNearBottom();
-
             // 检查是否有链接
             const links = getRawLinks();
             if (links.length > 0) {
@@ -2503,9 +2364,6 @@
         const autoSwitchButton = await createSwitchIcon();
         await createSieveSwitchIcon(autoSwitchButton);
         updateRunningHaloVisibility();
-
-        // 始终启用“接近底部自动加载”，支持手动浏览场景
-        initNearBottomAutoLoad();
 
         // 初始化主页筛选工具（由筛选开关控制）
         applySieveToolState();
