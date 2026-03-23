@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.03.24.0016
+// @version      2026.03.24.0018
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 配色注入）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -3080,6 +3080,69 @@
                     max-width: 100%;
                     height: auto;
                     border-radius: 8px;
+                    cursor: zoom-in;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-viewer {
+                    position: absolute;
+                    inset: 0;
+                    z-index: 3;
+                    display: none;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-viewer.visible {
+                    display: block;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-mask {
+                    position: absolute;
+                    inset: 0;
+                    background: rgba(15, 23, 42, 0.72);
+                    backdrop-filter: blur(6px);
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-panel {
+                    position: absolute;
+                    left: 50%;
+                    top: 50%;
+                    transform: translate(-50%, -50%);
+                    width: min(1040px, calc(100vw - 56px));
+                    max-height: calc(100vh - 56px);
+                    padding: 22px;
+                    border-radius: 18px;
+                    background: rgba(255, 255, 255, 0.96);
+                    box-shadow: 0 24px 64px rgba(15, 23, 42, 0.26);
+                    border: 1px solid rgba(124, 139, 153, 0.16);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-panel img {
+                    display: block;
+                    max-width: min(996px, calc(100vw - 100px));
+                    max-height: calc(100vh - 100px);
+                    width: auto;
+                    height: auto;
+                    border-radius: 12px;
+                    box-shadow: 0 14px 36px rgba(15, 23, 42, 0.16);
+                    object-fit: contain;
+                    background: rgba(255, 255, 255, 0.92);
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-close {
+                    position: absolute;
+                    top: 18px;
+                    right: 18px;
+                    width: 38px;
+                    height: 38px;
+                    border-radius: 999px;
+                    border: 1px solid rgba(255, 255, 255, 0.18);
+                    background: rgba(15, 23, 42, 0.52);
+                    color: #f8fafc;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    transition: background 160ms ease, border-color 160ms ease;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-close:hover {
+                    background: rgba(15, 23, 42, 0.72);
+                    border-color: rgba(255, 255, 255, 0.32);
                 }
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-cooked pre {
                     overflow-x: auto;
@@ -3201,6 +3264,16 @@
                         height: calc(100vh - 18px);
                         border-radius: 14px;
                     }
+                    #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-panel {
+                        width: calc(100vw - 24px);
+                        max-height: calc(100vh - 24px);
+                        padding: 12px;
+                        border-radius: 14px;
+                    }
+                    #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-panel img {
+                        max-width: calc(100vw - 52px);
+                        max-height: calc(100vh - 52px);
+                    }
                     #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-item {
                         grid-template-columns: 1fr;
                         gap: 8px;
@@ -3296,6 +3369,18 @@
                         </div>
                     </div>
                 </div>
+                <div class="linuxdo-topic-preview-image-viewer" data-role="preview-image-viewer" aria-hidden="true">
+                    <div class="linuxdo-topic-preview-image-mask" data-role="preview-image-mask"></div>
+                    <div class="linuxdo-topic-preview-image-panel">
+                        <button class="linuxdo-topic-preview-image-close" type="button" aria-label="关闭图片预览" data-role="preview-image-close">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M18 6 6 18"></path>
+                                <path d="m6 6 12 12"></path>
+                            </svg>
+                        </button>
+                        <img src="" alt="" data-role="preview-image-content">
+                    </div>
+                </div>
             `;
             document.body.appendChild(root);
             return root;
@@ -3307,6 +3392,43 @@
 
         getPreviewBody() {
             return this.getModalRoot()?.querySelector('.linuxdo-topic-preview-body') || null;
+        }
+
+        getImageViewerElements() {
+            const root = this.getModalRoot();
+            if (!root) {
+                return null;
+            }
+            return {
+                viewer: root.querySelector('[data-role="preview-image-viewer"]'),
+                image: root.querySelector('[data-role="preview-image-content"]')
+            };
+        }
+
+        isImageViewerOpen() {
+            return !!this.getImageViewerElements()?.viewer?.classList.contains('visible');
+        }
+
+        openImageViewer(imageUrl, altText = '') {
+            const elements = this.getImageViewerElements();
+            if (!elements?.viewer || !elements.image || !imageUrl) {
+                return;
+            }
+            elements.image.src = imageUrl;
+            elements.image.alt = altText;
+            elements.viewer.classList.add('visible');
+            elements.viewer.setAttribute('aria-hidden', 'false');
+        }
+
+        closeImageViewer() {
+            const elements = this.getImageViewerElements();
+            if (!elements?.viewer || !elements.image) {
+                return;
+            }
+            elements.viewer.classList.remove('visible');
+            elements.viewer.setAttribute('aria-hidden', 'true');
+            elements.image.src = '';
+            elements.image.alt = '';
         }
 
         isApplePlatform() {
@@ -3392,6 +3514,18 @@
             };
         }
 
+        getPreviewImageTarget(target) {
+            const image = target?.closest?.('.linuxdo-topic-preview-cooked img');
+            if (!image) {
+                return null;
+            }
+            const anchor = image.closest('a[href]');
+            return {
+                imageUrl: anchor?.href || image.currentSrc || image.src || '',
+                altText: image.getAttribute('alt') || ''
+            };
+        }
+
         handleDocumentClick(event) {
             const previewButton = event.target.closest('.linuxdo-topic-preview-trigger');
             if (previewButton) {
@@ -3435,6 +3569,16 @@
                 return;
             }
 
+            const imageCloseButton = event.target.closest('[data-role="preview-image-close"]');
+            const imageMask = event.target.closest('[data-role="preview-image-mask"]');
+            if (imageCloseButton || imageMask) {
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation?.();
+                this.closeImageViewer();
+                return;
+            }
+
             const likeButton = event.target.closest('[data-role="preview-like"]');
             if (likeButton) {
                 if (!this.isModifiedPrimaryClick(event)) {
@@ -3471,6 +3615,18 @@
                 return;
             }
 
+            const previewImage = this.getPreviewImageTarget(event.target);
+            if (previewImage) {
+                if (!this.isModifiedPrimaryClick(event)) {
+                    return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation?.();
+                this.openImageViewer(previewImage.imageUrl, previewImage.altText);
+                return;
+            }
+
             const closeButton = event.target.closest('[data-role="close"]');
             const mask = event.target.closest('[data-role="mask"]');
             if (closeButton || mask) {
@@ -3493,6 +3649,10 @@
             }
 
             if (event.key === 'Escape') {
+                if (this.isImageViewerOpen()) {
+                    this.closeImageViewer();
+                    return;
+                }
                 this.closePreview();
             }
         }
@@ -3520,6 +3680,7 @@
             if (footerToggle) {
                 this.setReplyToggleState(footerToggle, false);
             }
+            this.closeImageViewer();
             root.classList.add('visible');
             document.documentElement.classList.add('linuxdo-topic-preview-open');
             document.body.classList.add('linuxdo-topic-preview-open');
@@ -3529,6 +3690,7 @@
             const root = this.getModalRoot();
             this.activePreviewRequestId += 1;
             this.previewState = null;
+            this.closeImageViewer();
             if (!root) {
                 return;
             }
