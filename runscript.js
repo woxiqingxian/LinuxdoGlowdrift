@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.03.24.0018
+// @version      2026.03.24.0023
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 配色注入）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -118,7 +118,6 @@
         sieveLevels: 'linuxdoSieveLevels',
         sieveCats: 'linuxdoSieveCats',
         sieveTags: 'linuxdoSieveTags',
-        sieveDefaultTab: 'linuxdoSieveDefaultTab',
         sievePresets: 'linuxdoSievePresets',
         horizonPalette: 'linuxdoHorizonPalette'
     };
@@ -192,10 +191,6 @@
     /** 主页筛选工具配置 */
     const SIEVE_CONFIG = {
         paths: ['/', '/latest', '/top', '/new'],
-        tabs: [
-            { key: 'new', label: 'New', path: '/new' },
-            { key: 'latest', label: 'Latest', path: '/latest' }
-        ],
         refillVisibleTarget: 12,
         refillCooldownMs: 2500,
         refillMaxAttempts: 3,
@@ -1842,9 +1837,6 @@
                 SIEVE_CONFIG.categories.map((item) => item.id)
             );
             this.tagStates = this.readStored(STORAGE_KEYS.sieveTags, {});
-            this.defaultTab = this.normalizeTabKey(
-                this.readStored(STORAGE_KEYS.sieveDefaultTab, 'latest')
-            );
             this.presets = this.readStored(STORAGE_KEYS.sievePresets, {});
         }
 
@@ -1878,53 +1870,8 @@
             return !(allLevel && allCategory && !hasTagFilter);
         }
 
-        normalizeTabKey(tabKey) {
-            return SIEVE_CONFIG.tabs.some((item) => item.key === tabKey) ? tabKey : 'latest';
-        }
-
-        supportsTabToggle() {
-            return this.isHomePage();
-        }
-
-        getCurrentTabKey() {
-            const currentTab = SIEVE_CONFIG.tabs.find((item) => item.path === window.location.pathname);
-            return currentTab ? currentTab.key : null;
-        }
-
-        getTabPath(tabKey) {
-            return SIEVE_CONFIG.tabs.find((item) => item.key === tabKey)?.path || '/latest';
-        }
-
-        setDefaultTab(tabKey) {
-            this.defaultTab = this.normalizeTabKey(tabKey);
-            GM_setValue(STORAGE_KEYS.sieveDefaultTab, this.defaultTab);
-        }
-
-        navigateToTab(tabKey) {
-            const targetPath = this.getTabPath(tabKey);
-            if (window.location.pathname === targetPath) {
-                return;
-            }
-            window.location.href = `${location.origin}${targetPath}`;
-        }
-
-        applyDefaultTab() {
-            if (window.location.pathname !== '/') {
-                return false;
-            }
-            const targetPath = this.getTabPath(this.defaultTab);
-            if (!targetPath) {
-                return false;
-            }
-            window.location.href = `${location.origin}${targetPath}`;
-            return true;
-        }
-
         init() {
             this.ensureStyles();
-            if (this.applyDefaultTab()) {
-                return;
-            }
             this.onRouteChange();
             this.startLoop();
         }
@@ -2139,11 +2086,6 @@
         renderPanelHTML() {
             const checkIcon = '<svg viewBox="0 0 448 512"><path d="M438.6 105.4c12.5 12.5 12.5 32.8 0 45.3l-256 256c-12.5 12.5-32.8 12.5-45.3 0l-128-128c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0L160 338.7 393.4 105.4c12.5-12.5 32.8-12.5 45.3 0z"></path></svg>';
             const banIcon = '<svg viewBox="0 0 512 512"><path d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM175 175c9.4-9.4 24.6-9.4 33.9 0l47 47 47-47c9.4-9.4 24.6-9.4 33.9 0s9.4 24.6 0 33.9l-47 47 47 47c9.4 9.4 9.4 24.6 0 33.9s-24.6 9.4-33.9 0l-47-47-47 47c-9.4 9.4-24.6 9.4-33.9 0s-9.4-24.6 0-33.9l47-47-47-47c-9.4-9.4-9.4-24.6 0-33.9z"></path></svg>';
-            const tabButtons = SIEVE_CONFIG.tabs.map((item) => {
-                const active = this.defaultTab === item.key;
-                return `<span class="linuxdo-sieve-btn${active ? ' active' : ''}" data-type="tab" data-key="${item.key}">${item.label}</span>`;
-            }).join('');
-
             const levelButtons = SIEVE_CONFIG.levels.map((item) => {
                 const active = this.activeLevels.includes(item.key);
                 return `<span class="linuxdo-sieve-btn${active ? ' active' : ''}" data-type="level" data-key="${item.key}">${active ? checkIcon : ''}${item.label}</span>`;
@@ -2170,12 +2112,6 @@
 
             return `
                 <div class="linuxdo-sieve-status"></div>
-                ${this.supportsTabToggle() ? `
-                <div class="linuxdo-sieve-row">
-                    <span class="linuxdo-sieve-title">默认Tab</span>
-                    ${tabButtons}
-                </div>
-                ` : ''}
                 <div class="linuxdo-sieve-row">
                     <span class="linuxdo-sieve-title">等级</span>
                     <span class="linuxdo-sieve-action" data-action="toggle-level">全选</span>
@@ -2323,12 +2259,7 @@
             const buttonType = button.dataset.type;
             const key = button.dataset.key;
 
-            if (buttonType === 'tab') {
-                this.setDefaultTab(key);
-                this.updateButtonStates();
-                this.navigateToTab(key);
-                return;
-            } else if (buttonType === 'level') {
+            if (buttonType === 'level') {
                 const existingIndex = this.activeLevels.indexOf(key);
                 const label = SIEVE_CONFIG.levels.find((item) => item.key === key)?.label || key;
                 if (existingIndex >= 0) {
@@ -2388,11 +2319,6 @@
             const checkIcon = '<svg viewBox="0 0 448 512"><path d="M438.6 105.4c12.5 12.5 12.5 32.8 0 45.3l-256 256c-12.5 12.5-32.8 12.5-45.3 0l-128-128c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0L160 338.7 393.4 105.4c12.5-12.5 32.8-12.5 45.3 0z"></path></svg>';
             const banIcon = '<svg viewBox="0 0 512 512"><path d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM175 175c9.4-9.4 24.6-9.4 33.9 0l47 47 47-47c9.4-9.4 24.6-9.4 33.9 0s9.4 24.6 0 33.9l-47 47 47 47c9.4 9.4 9.4 24.6 0 33.9s-24.6 9.4-33.9 0l-47-47-47 47c-9.4 9.4-24.6 9.4-33.9 0s-9.4-24.6 0-33.9l47-47-47-47c-9.4-9.4-9.4-24.6 0-33.9z"></path></svg>';
 
-            this.panel.querySelectorAll('[data-type="tab"]').forEach((button) => {
-                const active = this.defaultTab === button.dataset.key;
-                button.className = `linuxdo-sieve-btn${active ? ' active' : ''}`;
-            });
-
             this.panel.querySelectorAll('[data-type="level"]').forEach((button) => {
                 const key = button.dataset.key;
                 const label = SIEVE_CONFIG.levels.find((item) => item.key === key)?.label || key;
@@ -2428,7 +2354,6 @@
 
         savePreset(name) {
             this.presets[name] = {
-                defaultTab: this.defaultTab,
                 levels: [...this.activeLevels],
                 cats: [...this.activeCats],
                 tags: { ...this.tagStates }
@@ -2445,16 +2370,10 @@
             this.activeLevels = [...(preset.levels || [])];
             this.activeCats = [...(preset.cats || [])];
             this.tagStates = { ...(preset.tags || {}) };
-            this.setDefaultTab(preset.defaultTab || 'latest');
 
             GM_setValue(STORAGE_KEYS.sieveLevels, this.activeLevels);
             GM_setValue(STORAGE_KEYS.sieveCats, this.activeCats);
             GM_setValue(STORAGE_KEYS.sieveTags, this.tagStates);
-
-            if (this.supportsTabToggle() && this.defaultTab !== this.getCurrentTabKey()) {
-                this.navigateToTab(this.defaultTab);
-                return;
-            }
 
             this.resetRefillState({ resetCooldown: true });
             this.filterDirty = true;
@@ -2788,9 +2707,6 @@
         }
 
         onRouteChange() {
-            if (this.applyDefaultTab()) {
-                return;
-            }
             if (this.isHomePage()) {
                 this.removePanel();
                 this.createPanel();
