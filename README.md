@@ -2,6 +2,10 @@
 
 一个用于 `linux.do` 的 Tampermonkey 浏览增强脚本。  
 
+<img src="img/main.jpg" alt="整体页面效果" width="960">
+
+<img src="img/over.jpg" alt="话题预览效果" width="720">
+
 ## 功能特性
 
 - 默认人类自动浏览：按 scan/read/pause 节奏滚动与停顿，减少机械感，模拟更自然的浏览过程。
@@ -26,10 +30,12 @@
 
 ## 安装方式
 
-1. 安装浏览器扩展 `Tampermonkey`
-2. 新建脚本并粘贴 `runscript.js` 全部内容
+1. 安装浏览器扩展 `Violentmonkey`（暴力猴）
+2. 新建脚本，并把 [`runscript.js`](./runscript.js) 的全部内容复制进去
 3. 保存后打开 `https://linux.do/`
-4. 点击顶部新增按钮进行控制：
+4. 脚本已写入自动更新地址，后续会从以下链接自动检查更新：
+   `https://raw.githubusercontent.com/woxiqingxian/LinuxdoGlowdrift/main/runscript.js`
+5. 点击顶部新增按钮进行控制：
    - 漫游开关（开始/暂停自动漫游）
    - 筛选开关（启用/停用主页筛选工具）
 
