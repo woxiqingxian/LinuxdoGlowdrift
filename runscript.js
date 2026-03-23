@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.03.23.2313
+// @version      2026.03.23.2340
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 配色注入）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -2830,7 +2830,17 @@
                     font-size: 13px;
                     color: var(--primary-medium, #6b7280);
                     display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-footer-row {
+                    display: flex;
                     justify-content: space-between;
+                    align-items: center;
+                    gap: 12px;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-footer-actions {
+                    display: flex;
                     align-items: center;
                     gap: 12px;
                 }
@@ -2892,6 +2902,13 @@
                     padding: 14px 16px 56px;
                     min-width: 0;
                     position: relative;
+                    transition: padding 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-post.is-replying {
+                    padding-bottom: 206px;
+                    border-color: rgba(124, 139, 153, 0.2);
+                    background: rgba(255, 255, 255, 0.96);
+                    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
                 }
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-author {
                     display: flex;
@@ -2932,7 +2949,9 @@
                     bottom: 14px;
                     justify-content: flex-end;
                 }
-                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-like {
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-like,
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-toggle,
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-submit {
                     min-width: 84px;
                     height: 32px;
                     padding: 0 12px;
@@ -2948,7 +2967,9 @@
                     font-weight: 600;
                     transition: border-color 160ms ease, background 160ms ease, color 160ms ease, opacity 160ms ease;
                 }
-                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-like:hover {
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-like:hover,
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-toggle:hover,
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-submit:hover {
                     color: var(--primary, #2f3338);
                     border-color: rgba(124, 139, 153, 0.34);
                     background: rgba(124, 139, 153, 0.08);
@@ -2965,6 +2986,62 @@
                 }
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-like-count {
                     font-variant-numeric: tabular-nums;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-toggle.is-active {
+                    color: #53687b;
+                    border-color: rgba(83, 104, 123, 0.22);
+                    background: rgba(83, 104, 123, 0.12);
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-submit {
+                    min-width: 92px;
+                    color: #7c5a3f;
+                    border-color: rgba(166, 120, 82, 0.24);
+                    background: rgba(166, 120, 82, 0.14);
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-actions .linuxdo-topic-preview-reply-submit {
+                    display: none;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-post.is-replying .linuxdo-topic-preview-actions .linuxdo-topic-preview-reply-submit {
+                    display: inline-flex;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-composer {
+                    position: absolute;
+                    left: 16px;
+                    right: 16px;
+                    bottom: 56px;
+                    display: none;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-post.is-replying .linuxdo-topic-preview-reply-composer {
+                    display: block;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-input {
+                    width: 100%;
+                    min-height: 96px;
+                    resize: vertical;
+                    border-radius: 12px;
+                    border: 1px solid rgba(124, 139, 153, 0.18);
+                    background: rgba(255, 255, 255, 0.98);
+                    padding: 10px 12px;
+                    color: var(--primary, #2f3338);
+                    font-size: 14px;
+                    line-height: 1.6;
+                    box-sizing: border-box;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-input:focus {
+                    outline: none;
+                    border-color: rgba(166, 120, 82, 0.32);
+                    box-shadow: 0 0 0 3px rgba(166, 120, 82, 0.10);
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-footer {
+                    display: flex;
+                    justify-content: flex-end;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-footer-reply {
+                    display: none;
+                    gap: 10px;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-footer.is-replying .linuxdo-topic-preview-footer-reply {
+                    display: grid;
                 }
                 html.linuxdo-topic-preview-open,
                 body.linuxdo-topic-preview-open {
@@ -2990,6 +3067,22 @@
                     #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-actions {
                         right: 12px;
                         bottom: 12px;
+                    }
+                    #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-post.is-replying {
+                        padding-bottom: 198px;
+                    }
+                    #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-composer {
+                        left: 12px;
+                        right: 12px;
+                        bottom: 52px;
+                    }
+                    #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-footer-row {
+                        align-items: flex-start;
+                        flex-direction: column;
+                    }
+                    #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-footer-actions {
+                        width: 100%;
+                        justify-content: space-between;
                     }
                 }
             `;
@@ -3021,8 +3114,42 @@
                         <div class="linuxdo-topic-preview-loading">正在加载中...</div>
                     </div>
                     <div class="linuxdo-topic-preview-footer">
-                        <span class="linuxdo-topic-preview-hint">先显示前 ${TOPIC_PREVIEW_CONFIG.initialPosts} 楼，下拉接近底部时自动加载更多</span>
-                        <a class="linuxdo-topic-preview-more" href="/" target="_blank" rel="noopener noreferrer">查看完整话题</a>
+                        <div class="linuxdo-topic-preview-footer-row">
+                            <span class="linuxdo-topic-preview-hint">先显示前 ${TOPIC_PREVIEW_CONFIG.initialPosts} 楼，下拉接近底部时自动加载更多</span>
+                            <div class="linuxdo-topic-preview-footer-actions">
+                                <button
+                                    class="linuxdo-topic-preview-reply-toggle"
+                                    type="button"
+                                    data-role="preview-reply-toggle"
+                                    data-reply-scope="topic"
+                                    data-reply-key="topic-footer"
+                                    data-label-default="回复话题"
+                                    title="回复话题"
+                                >
+                                    <span class="linuxdo-topic-preview-reply-toggle-label">回复话题</span>
+                                </button>
+                                <a class="linuxdo-topic-preview-more" href="/" target="_blank" rel="noopener noreferrer">查看完整话题</a>
+                            </div>
+                        </div>
+                        <div class="linuxdo-topic-preview-footer-reply">
+                            <textarea
+                                class="linuxdo-topic-preview-reply-input"
+                                data-role="preview-reply-input"
+                                data-reply-scope="topic"
+                                placeholder="输入回复内容..."
+                            ></textarea>
+                            <div class="linuxdo-topic-preview-reply-footer">
+                                <button
+                                    class="linuxdo-topic-preview-reply-submit"
+                                    type="button"
+                                    data-role="preview-reply-submit"
+                                    data-reply-scope="topic"
+                                    title="${this.getReplySubmitButtonText()}"
+                                >
+                                    ${this.getReplySubmitButtonText()}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             `;
@@ -3036,6 +3163,29 @@
 
         getPreviewBody() {
             return this.getModalRoot()?.querySelector('.linuxdo-topic-preview-body') || null;
+        }
+
+        isApplePlatform() {
+            const platform = navigator.userAgentData?.platform || navigator.platform || '';
+            return /mac|iphone|ipad|ipod/i.test(platform);
+        }
+
+        getReplySubmitShortcutLabel() {
+            return this.isApplePlatform() ? 'Cmd+Enter' : 'Ctrl+Enter';
+        }
+
+        getReplySubmitButtonText() {
+            return `发布（${this.getReplySubmitShortcutLabel()}）`;
+        }
+
+        isReplySubmitShortcut(event) {
+            if (event.key !== 'Enter' || event.altKey || event.shiftKey) {
+                return false;
+            }
+            if (this.isApplePlatform()) {
+                return event.metaKey && !event.ctrlKey;
+            }
+            return event.ctrlKey && !event.metaKey;
         }
 
         ensurePreviewButtons() {
@@ -3132,6 +3282,30 @@
                 return;
             }
 
+            const replyToggle = event.target.closest('[data-role="preview-reply-toggle"]');
+            if (replyToggle) {
+                if (!this.isModifiedPrimaryClick(event)) {
+                    return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation?.();
+                this.togglePreviewReplyComposer(replyToggle);
+                return;
+            }
+
+            const replySubmit = event.target.closest('[data-role="preview-reply-submit"]');
+            if (replySubmit) {
+                if (!this.isModifiedPrimaryClick(event)) {
+                    return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation?.();
+                this.submitPreviewReply(replySubmit);
+                return;
+            }
+
             const closeButton = event.target.closest('[data-role="close"]');
             const mask = event.target.closest('[data-role="mask"]');
             if (closeButton || mask) {
@@ -3141,6 +3315,18 @@
         }
 
         handleKeyDown(event) {
+            if (this.isReplySubmitShortcut(event)) {
+                const replyInput = event.target?.closest?.('[data-role="preview-reply-input"]');
+                const submitButton = this.getReplySubmitButtonForInput(replyInput);
+                if (submitButton && !submitButton.disabled) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    event.stopImmediatePropagation?.();
+                    this.submitPreviewReply(submitButton);
+                    return;
+                }
+            }
+
             if (event.key === 'Escape') {
                 this.closePreview();
             }
@@ -3153,12 +3339,22 @@
             const body = root.querySelector('.linuxdo-topic-preview-body');
             const moreLink = root.querySelector('.linuxdo-topic-preview-more');
             const hint = root.querySelector('.linuxdo-topic-preview-hint');
+            const footer = root.querySelector('.linuxdo-topic-preview-footer');
+            const footerInput = root.querySelector('.linuxdo-topic-preview-footer [data-role="preview-reply-input"]');
+            const footerToggle = root.querySelector('.linuxdo-topic-preview-footer [data-role="preview-reply-toggle"]');
 
             title.textContent = '正在加载中...';
             meta.textContent = '';
             body.innerHTML = '<div class="linuxdo-topic-preview-loading">正在加载中...</div>';
             moreLink.href = '/';
             hint.textContent = `先显示前 ${TOPIC_PREVIEW_CONFIG.initialPosts} 楼，下拉接近底部时自动加载更多`;
+            footer?.classList.remove('is-replying');
+            if (footerInput) {
+                footerInput.value = '';
+            }
+            if (footerToggle) {
+                this.setReplyToggleState(footerToggle, false);
+            }
             root.classList.add('visible');
             document.documentElement.classList.add('linuxdo-topic-preview-open');
             document.body.classList.add('linuxdo-topic-preview-open');
@@ -3205,16 +3401,79 @@
             return Math.max(0, Number(summary?.count) || 0);
         }
 
+        getCurrentUsername() {
+            const discourseUser = window.Discourse?.User?.current?.();
+            if (discourseUser?.username) {
+                return String(discourseUser.username).toLowerCase();
+            }
+
+            const currentUser = window.currentUser;
+            if (currentUser?.username) {
+                return String(currentUser.username).toLowerCase();
+            }
+
+            const avatar = document.querySelector('.header-dropdown-toggle.current-user img.avatar');
+            const altText = avatar?.getAttribute('alt') || '';
+            if (altText.startsWith('@')) {
+                return altText.slice(1).toLowerCase();
+            }
+
+            return '';
+        }
+
+        canLikePost(post) {
+            const summary = Array.isArray(post?.actions_summary)
+                ? post.actions_summary.find((item) => Number(item?.id) === POST_ACTION_TYPES.like)
+                : null;
+            if (typeof summary?.can_act === 'boolean') {
+                return summary.can_act || Boolean(summary.acted);
+            }
+
+            const currentUsername = this.getCurrentUsername();
+            const postUsername = String(post?.username || '').toLowerCase();
+            if (currentUsername && postUsername && currentUsername === postUsername) {
+                return false;
+            }
+
+            return true;
+        }
+
         hasLikedPost(post) {
+            const summary = Array.isArray(post?.actions_summary)
+                ? post.actions_summary.find((item) => Number(item?.id) === POST_ACTION_TYPES.like)
+                : null;
+            if (typeof summary?.acted === 'boolean') {
+                return summary.acted;
+            }
             return Boolean(post?.yours);
         }
 
         buildPostLikeHtml(post) {
             const liked = this.hasLikedPost(post);
+            const canLike = this.canLikePost(post);
             const likeCount = this.getPostLikeCount(post);
             const postId = Number(post?.id) || 0;
+            const floorNumber = Number(post?.post_number) || 0;
+            const isTopicReply = floorNumber === 1;
+            const replyLabel = isTopicReply ? '回复话题' : '回复';
+            const replyScope = isTopicReply ? 'topic' : 'post';
+            const likeTitle = !canLike
+                ? '自己的帖子不能点赞'
+                : (liked ? '取消点赞' : '点赞此帖子');
             return `
                 <div class="linuxdo-topic-preview-actions">
+                    <button
+                        class="linuxdo-topic-preview-reply-toggle"
+                        type="button"
+                        data-role="preview-reply-toggle"
+                        data-post-id="${postId}"
+                        data-reply-scope="${replyScope}"
+                        data-reply-key="post-${postId}"
+                        data-label-default="${replyLabel}"
+                        title="${replyLabel}"
+                    >
+                        <span class="linuxdo-topic-preview-reply-toggle-label">${replyLabel}</span>
+                    </button>
                     <button
                         class="linuxdo-topic-preview-like${liked ? ' is-liked' : ''}"
                         type="button"
@@ -3222,12 +3481,41 @@
                         data-post-id="${postId}"
                         data-liked="${liked ? '1' : '0'}"
                         data-like-count="${likeCount}"
+                        data-can-like="${canLike ? '1' : '0'}"
                         aria-pressed="${liked ? 'true' : 'false'}"
-                        title="${liked ? '取消点赞' : '点赞此帖子'}"
+                        title="${likeTitle}"
+                        ${canLike ? '' : 'disabled'}
                     >
                         <span class="linuxdo-topic-preview-like-label">${liked ? '已赞' : '点赞'}</span>
                         <span class="linuxdo-topic-preview-like-count">${likeCount}</span>
                     </button>
+                    <button
+                        class="linuxdo-topic-preview-reply-submit"
+                        type="button"
+                        data-role="preview-reply-submit"
+                        data-post-id="${postId}"
+                        data-reply-scope="${replyScope}"
+                        title="${this.getReplySubmitButtonText()}"
+                    >
+                        ${this.getReplySubmitButtonText()}
+                    </button>
+                </div>
+            `;
+        }
+
+        buildPostReplyComposerHtml(post) {
+            const postId = Number(post?.id) || 0;
+            const floorNumber = Number(post?.post_number) || 0;
+            const replyScope = floorNumber === 1 ? 'topic' : 'post';
+            return `
+                <div class="linuxdo-topic-preview-reply-composer">
+                    <textarea
+                        class="linuxdo-topic-preview-reply-input"
+                        data-role="preview-reply-input"
+                        data-post-id="${postId}"
+                        data-reply-scope="${replyScope}"
+                        placeholder="输入回复内容..."
+                    ></textarea>
                 </div>
             `;
         }
@@ -3240,7 +3528,11 @@
             const createdAt = this.escapeHtml(this.formatDate(post.created_at));
             const floorNumber = Number(post.post_number) || 0;
             return `
-                <article class="linuxdo-topic-preview-item" data-post-id="${Number(post?.id) || 0}">
+                <article
+                    class="linuxdo-topic-preview-item"
+                    data-post-id="${Number(post?.id) || 0}"
+                    data-post-number="${floorNumber}"
+                >
                     <div class="linuxdo-topic-preview-floor">${floorNumber} 楼</div>
                     <div class="linuxdo-topic-preview-post">
                         <div class="linuxdo-topic-preview-author">
@@ -3249,6 +3541,7 @@
                             <span class="linuxdo-topic-preview-date">${createdAt}</span>
                         </div>
                         <div class="linuxdo-topic-preview-cooked">${post.cooked || ''}</div>
+                        ${this.buildPostReplyComposerHtml(post)}
                         ${this.buildPostLikeHtml(post)}
                     </div>
                 </article>
@@ -3257,6 +3550,141 @@
 
         getCsrfToken() {
             return document.querySelector('meta[name="csrf-token"]')?.content || '';
+        }
+
+        getPreviewPostItem(target) {
+            return target?.closest('.linuxdo-topic-preview-item') || null;
+        }
+
+        getPreviewPostCard(target) {
+            return target?.closest('.linuxdo-topic-preview-post') || null;
+        }
+
+        getReplyContext(target) {
+            const footer = target?.closest('.linuxdo-topic-preview-footer');
+            if (footer) {
+                return {
+                    key: 'topic-footer',
+                    host: footer,
+                    toggle: footer.querySelector('[data-role="preview-reply-toggle"]'),
+                    input: footer.querySelector('[data-role="preview-reply-input"]'),
+                    scope: 'topic',
+                    replyToPostNumber: 0
+                };
+            }
+
+            const item = this.getPreviewPostItem(target);
+            const card = this.getPreviewPostCard(target);
+            if (!item || !card) {
+                return null;
+            }
+
+            const toggle = item.querySelector('[data-role="preview-reply-toggle"]');
+            const input = item.querySelector('[data-role="preview-reply-input"]');
+            return {
+                key: `post-${Number(item.dataset.postId) || 0}`,
+                host: card,
+                toggle,
+                input,
+                scope: toggle?.dataset.replyScope || 'post',
+                replyToPostNumber: Number(item.dataset.postNumber) || 0
+            };
+        }
+
+        getReplySubmitButtonForInput(input) {
+            const composer = input?.closest('.linuxdo-topic-preview-reply-composer, .linuxdo-topic-preview-footer-reply');
+            if (!composer) {
+                return null;
+            }
+
+            const inlineButton = composer
+                .closest('.linuxdo-topic-preview-item')
+                ?.querySelector('.linuxdo-topic-preview-actions [data-role="preview-reply-submit"]');
+            return inlineButton || composer.querySelector('[data-role="preview-reply-submit"]') || null;
+        }
+
+        closeAllReplyComposers(exceptKey = '') {
+            const items = document.querySelectorAll('#linuxdo-topic-preview-root .linuxdo-topic-preview-item');
+            items.forEach((item) => {
+                const replyKey = `post-${Number(item.dataset.postId) || 0}`;
+                if (exceptKey && replyKey === exceptKey) {
+                    return;
+                }
+
+                const card = item.querySelector('.linuxdo-topic-preview-post');
+                const toggle = item.querySelector('[data-role="preview-reply-toggle"]');
+                const input = item.querySelector('[data-role="preview-reply-input"]');
+                if (card) {
+                    card.classList.remove('is-replying');
+                }
+                if (toggle) {
+                    this.setReplyToggleState(toggle, false);
+                }
+                if (input) {
+                    input.value = '';
+                }
+            });
+
+            const footer = this.getModalRoot()?.querySelector('.linuxdo-topic-preview-footer');
+            if (!footer || (exceptKey && exceptKey === 'topic-footer')) {
+                return;
+            }
+
+            footer.classList.remove('is-replying');
+            const footerToggle = footer.querySelector('[data-role="preview-reply-toggle"]');
+            const footerInput = footer.querySelector('[data-role="preview-reply-input"]');
+            if (footerToggle) {
+                this.setReplyToggleState(footerToggle, false);
+            }
+            if (footerInput) {
+                footerInput.value = '';
+            }
+        }
+
+        setReplyToggleState(toggle, isActive = false, tempLabel = '') {
+            if (!toggle) {
+                return;
+            }
+
+            const labelNode = toggle.querySelector('.linuxdo-topic-preview-reply-toggle-label');
+            toggle.classList.toggle('is-active', isActive);
+            if (labelNode) {
+                labelNode.textContent = tempLabel || (isActive ? '收起' : (toggle.dataset.labelDefault || '回复'));
+            }
+        }
+
+        flashReplyToggle(toggle, tempLabel) {
+            if (!toggle) {
+                return;
+            }
+
+            const flashToken = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            toggle.dataset.flashToken = flashToken;
+            this.setReplyToggleState(toggle, false, tempLabel);
+            window.setTimeout(() => {
+                if (!toggle.isConnected || toggle.dataset.flashToken !== flashToken) {
+                    return;
+                }
+                delete toggle.dataset.flashToken;
+                this.setReplyToggleState(toggle, false);
+            }, 1800);
+        }
+
+        togglePreviewReplyComposer(toggle) {
+            const context = this.getReplyContext(toggle);
+            if (!context?.host || !context.input || !context.toggle) {
+                return;
+            }
+
+            const willOpen = !context.host.classList.contains('is-replying');
+            this.closeAllReplyComposers(willOpen ? context.key : '');
+            if (!willOpen) {
+                return;
+            }
+
+            context.host.classList.add('is-replying');
+            this.setReplyToggleState(context.toggle, true);
+            window.setTimeout(() => context.input.focus(), 0);
         }
 
         setPreviewLikeButtonState(button, liked, likeCount, isLoading = false, tempLabel = '') {
@@ -3346,6 +3774,30 @@
             }
         }
 
+        async createPreviewReply(topicId, raw, csrfToken, replyToPostNumber = 0) {
+            const body = new URLSearchParams({
+                topic_id: String(topicId),
+                raw
+            });
+            if (replyToPostNumber > 0) {
+                body.set('reply_to_post_number', String(replyToPostNumber));
+            }
+            const response = await fetch(`${location.origin}/posts.json`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'X-CSRF-Token': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: body.toString()
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+        }
+
         async togglePreviewPostLike(button) {
             if (!button || button.classList.contains('is-loading')) {
                 return;
@@ -3354,10 +3806,16 @@
             const postId = Number(button.dataset.postId) || 0;
             const liked = button.dataset.liked === '1';
             const likeCount = Math.max(0, Number(button.dataset.likeCount) || 0);
+            const canLike = button.dataset.canLike !== '0';
             const csrfToken = this.getCsrfToken();
 
             if (!postId) {
                 this.flashPreviewLikeButton(button, liked, likeCount, '无效楼层');
+                return;
+            }
+
+            if (!canLike && !liked) {
+                this.flashPreviewLikeButton(button, liked, likeCount, '不能点赞自己');
                 return;
             }
 
@@ -3381,6 +3839,62 @@
                 console.error('话题预览点赞失败:', error);
                 this.setPreviewLikeButtonState(button, liked, likeCount, false);
                 this.flashPreviewLikeButton(button, liked, likeCount, '稍后重试');
+            }
+        }
+
+        async submitPreviewReply(button) {
+            if (!button || button.disabled) {
+                return;
+            }
+
+            const context = this.getReplyContext(button);
+            const topicId = Number(this.previewState?.topicId) || 0;
+            const raw = context?.input?.value?.trim() || '';
+            const csrfToken = this.getCsrfToken();
+
+            if (!context?.host || !context.toggle || !context.input) {
+                return;
+            }
+
+            if (!csrfToken) {
+                this.flashReplyToggle(context.toggle, '请先登录');
+                return;
+            }
+
+            if (!topicId) {
+                this.flashReplyToggle(context.toggle, '无效话题');
+                return;
+            }
+
+            if (!raw) {
+                context.input.focus();
+                this.flashReplyToggle(context.toggle, '请输入内容');
+                return;
+            }
+
+            button.disabled = true;
+            button.textContent = '发布中';
+
+            try {
+                await this.createPreviewReply(
+                    topicId,
+                    raw,
+                    csrfToken,
+                    context.scope === 'post' ? context.replyToPostNumber : 0
+                );
+                context.input.value = '';
+                button.textContent = '已发布';
+                context.host.classList.remove('is-replying');
+                this.flashReplyToggle(context.toggle, '已发布');
+            } catch (error) {
+                console.error('话题预览回复失败:', error);
+                button.textContent = '发布';
+                this.flashReplyToggle(context.toggle, '稍后重试');
+            } finally {
+                button.disabled = false;
+                if (button.isConnected) {
+                    button.textContent = this.getReplySubmitButtonText();
+                }
             }
         }
 
