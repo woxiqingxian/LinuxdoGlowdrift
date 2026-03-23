@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.03.23.1959
+// @version      2026.03.23.2137
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 配色注入）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -171,6 +171,10 @@
     /** 主页筛选工具配置 */
     const SIEVE_CONFIG = {
         paths: ['/', '/latest', '/top', '/new'],
+        refillVisibleTarget: 12,
+        refillCooldownMs: 2500,
+        refillMaxAttempts: 3,
+        refillSettleMs: 1200,
         levels: [
             { key: 'public', label: '公开(Lv0)', check: (classText) => !/lv\d+/i.test(classText) },
             { key: 'lv1', label: 'Lv1', check: (classText) => /lv1/i.test(classText) },
@@ -1717,6 +1721,14 @@
             this.lastUrl = location.href;
             this.lastRowCount = 0;
             this.filterDirty = true;
+            this.visibleCount = 0;
+            this.isRefilling = false;
+            this.waitingRefillResult = false;
+            this.lastRefillAt = 0;
+            this.refillAttempts = 0;
+            this.refillExhausted = false;
+            this.lastRefillRowCount = 0;
+            this.refillRestoreScrollTop = null;
 
             this.activeLevels = this.readStored(
                 STORAGE_KEYS.sieveLevels,
@@ -2138,6 +2150,7 @@
                 GM_setValue(STORAGE_KEYS.sieveTags, this.tagStates);
             }
 
+            this.resetRefillState({ resetCooldown: true });
             this.filterDirty = true;
             this.updateButtonStates();
             this.filterTopics();
@@ -2196,6 +2209,7 @@
                 GM_setValue(STORAGE_KEYS.sieveTags, this.tagStates);
             }
 
+            this.resetRefillState({ resetCooldown: true });
             this.filterDirty = true;
             this.filterTopics();
         }
@@ -2264,6 +2278,7 @@
             GM_setValue(STORAGE_KEYS.sieveCats, this.activeCats);
             GM_setValue(STORAGE_KEYS.sieveTags, this.tagStates);
 
+            this.resetRefillState({ resetCooldown: true });
             this.filterDirty = true;
             this.updateButtonStates();
             this.filterTopics();
@@ -2272,27 +2287,183 @@
         deletePreset(name) {
             delete this.presets[name];
             GM_setValue(STORAGE_KEYS.sievePresets, this.presets);
+            this.resetRefillState({ resetCooldown: true });
+            this.filterDirty = true;
             this.refreshPresetChips();
+            this.filterTopics();
+        }
+
+        getTopicRows() {
+            return Array.from(document.querySelectorAll('.topic-list-body tr.topic-list-item'));
         }
 
         showAllTopics() {
-            const rows = document.querySelectorAll('.topic-list-body tr.topic-list-item');
+            const rows = this.getTopicRows();
             rows.forEach((row) => {
                 row.style.display = '';
             });
         }
 
-        filterTopics() {
-            const rows = document.querySelectorAll('.topic-list-body tr.topic-list-item');
-            if (!rows.length) {
-                this.updateStatus('');
-                return 0;
+        resetRefillState({ resetCooldown = false } = {}) {
+            this.isRefilling = false;
+            this.waitingRefillResult = false;
+            this.refillAttempts = 0;
+            this.refillExhausted = false;
+            this.lastRefillRowCount = 0;
+            this.refillRestoreScrollTop = null;
+            if (resetCooldown) {
+                this.lastRefillAt = 0;
+            }
+        }
+
+        restoreRefillScrollPosition() {
+            if (typeof this.refillRestoreScrollTop !== 'number') {
+                return;
+            }
+            window.scrollTo({ top: this.refillRestoreScrollTop, behavior: 'auto' });
+            this.refillRestoreScrollTop = null;
+        }
+
+        buildStatusText(filterResult) {
+            if (!filterResult || !filterResult.hasActiveFilter || filterResult.totalRows === 0) {
+                return '';
+            }
+            if (this.waitingRefillResult || this.isRefilling) {
+                return `筛选中 (${filterResult.visibleCount} 条，补充中)`;
+            }
+            if (this.refillExhausted) {
+                return `筛选中 (${filterResult.visibleCount} 条，暂无更多匹配项)`;
+            }
+            return `筛选中 (${filterResult.visibleCount} 条)`;
+        }
+
+        getCurrentFilterResult(totalRows = this.lastRowCount) {
+            return {
+                totalRows,
+                visibleCount: this.visibleCount,
+                hasActiveFilter: this.hasActiveFilter()
+            };
+        }
+
+        completeRefillAttempt(success, currentRowCount) {
+            if (success) {
+                this.refillAttempts = 0;
+                this.refillExhausted = false;
+            } else {
+                this.refillAttempts += 1;
+                if (this.refillAttempts >= SIEVE_CONFIG.refillMaxAttempts) {
+                    this.refillExhausted = true;
+                }
             }
 
-            if (!this.hasActiveFilter()) {
-                this.showAllTopics();
+            this.waitingRefillResult = false;
+            this.isRefilling = false;
+            this.lastRefillRowCount = currentRowCount;
+            this.restoreRefillScrollPosition();
+        }
+
+        resolvePendingRefill(currentRowCount) {
+            if (!this.waitingRefillResult) {
+                return;
+            }
+
+            if (currentRowCount > this.lastRefillRowCount) {
+                this.completeRefillAttempt(true, currentRowCount);
+                return;
+            }
+
+            if (Date.now() - this.lastRefillAt < SIEVE_CONFIG.refillSettleMs) {
+                return;
+            }
+
+            this.completeRefillAttempt(false, currentRowCount);
+            this.updateStatus(this.buildStatusText(this.getCurrentFilterResult(currentRowCount)));
+        }
+
+        shouldTryRefill(filterResult = this.getCurrentFilterResult()) {
+            if (!this.isHomePage() || !getSieveSwitchState()) {
+                return false;
+            }
+            if (!filterResult.hasActiveFilter || filterResult.totalRows === 0) {
+                return false;
+            }
+            if (filterResult.visibleCount >= SIEVE_CONFIG.refillVisibleTarget) {
+                return false;
+            }
+            if (this.waitingRefillResult || this.isRefilling || this.refillExhausted) {
+                return false;
+            }
+            if (Date.now() - this.lastRefillAt < SIEVE_CONFIG.refillCooldownMs) {
+                return false;
+            }
+            return true;
+        }
+
+        clickShowMoreTopics() {
+            const showMoreButton = document.querySelector('.show-more.has-topics .alert.alert-info.clickable');
+            if (!showMoreButton) {
+                return false;
+            }
+            showMoreButton.click();
+            return true;
+        }
+
+        triggerBottomRefill() {
+            const rows = this.getTopicRows();
+            const lastRow = rows.at(-1);
+            const scrollingElement = document.scrollingElement || document.documentElement;
+            const targetTop = lastRow
+                ? Math.ceil(lastRow.getBoundingClientRect().bottom + window.scrollY + 260)
+                : scrollingElement.scrollHeight;
+
+            this.refillRestoreScrollTop = window.scrollY;
+            window.scrollTo({ top: targetTop, behavior: 'auto' });
+            window.dispatchEvent(new Event('scroll'));
+        }
+
+        tryRefillVisibleTopics(filterResult = this.getCurrentFilterResult()) {
+            const rows = this.getTopicRows();
+            if (!rows.length) {
+                return;
+            }
+
+            this.isRefilling = true;
+            this.waitingRefillResult = true;
+            this.lastRefillAt = Date.now();
+            this.lastRefillRowCount = rows.length;
+            this.updateStatus(this.buildStatusText(filterResult));
+
+            if (this.clickShowMoreTopics()) {
+                return;
+            }
+
+            this.triggerBottomRefill();
+        }
+
+        filterTopics() {
+            const rows = this.getTopicRows();
+            const totalRows = rows.length;
+            if (!rows.length) {
+                this.visibleCount = 0;
                 this.updateStatus('');
-                return rows.length;
+                return {
+                    totalRows: 0,
+                    visibleCount: 0,
+                    hasActiveFilter: this.hasActiveFilter()
+                };
+            }
+
+            const hasActiveFilter = this.hasActiveFilter();
+            if (!hasActiveFilter) {
+                this.showAllTopics();
+                this.visibleCount = rows.length;
+                this.resetRefillState({ resetCooldown: true });
+                this.updateStatus('');
+                return {
+                    totalRows,
+                    visibleCount: rows.length,
+                    hasActiveFilter: false
+                };
             }
 
             const includeTags = [];
@@ -2370,8 +2541,14 @@
                 }
             });
 
-            this.updateStatus(`筛选中 (${visibleCount} 条)`);
-            return visibleCount;
+            this.visibleCount = visibleCount;
+            const filterResult = {
+                totalRows,
+                visibleCount,
+                hasActiveFilter: true
+            };
+            this.updateStatus(this.buildStatusText(filterResult));
+            return filterResult;
         }
 
         updateStatus(text) {
@@ -2403,24 +2580,45 @@
                 this.createPanel();
             }
 
-            const rows = document.querySelectorAll('.topic-list-body tr.topic-list-item');
-            const hasChanged = this.filterDirty || rows.length !== this.lastRowCount;
+            const rows = this.getTopicRows();
+            const rowCount = rows.length;
+            if (rowCount > this.lastRowCount) {
+                if (this.waitingRefillResult && rowCount > this.lastRefillRowCount) {
+                    this.completeRefillAttempt(true, rowCount);
+                } else {
+                    this.refillAttempts = 0;
+                    this.refillExhausted = false;
+                }
+            }
+
+            this.resolvePendingRefill(rowCount);
+
+            const hasChanged = this.filterDirty || rowCount !== this.lastRowCount;
             if (!hasChanged) {
+                if (this.shouldTryRefill()) {
+                    this.tryRefillVisibleTopics(this.getCurrentFilterResult(rowCount));
+                }
                 return;
             }
 
-            this.lastRowCount = rows.length;
+            this.lastRowCount = rowCount;
             this.filterDirty = false;
-            this.filterTopics();
+            const filterResult = this.filterTopics();
+            if (this.shouldTryRefill(filterResult)) {
+                this.tryRefillVisibleTopics(filterResult);
+            }
         }
 
         onRouteChange() {
             if (this.isHomePage()) {
                 this.createPanel();
+                this.resetRefillState({ resetCooldown: true });
                 this.filterDirty = true;
                 this.lastRowCount = 0;
+                this.visibleCount = 0;
                 this.filterTopics();
             } else {
+                this.resetRefillState({ resetCooldown: true });
                 this.removePanel();
                 this.showAllTopics();
             }
