@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.03.24.0023
+// @version      2026.03.24.0051
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 配色注入）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -119,6 +119,7 @@
         sieveCats: 'linuxdoSieveCats',
         sieveTags: 'linuxdoSieveTags',
         sievePresets: 'linuxdoSievePresets',
+        sidebarTopicsToNew: 'linuxdoSidebarTopicsToNew',
         horizonPalette: 'linuxdoHorizonPalette'
     };
 
@@ -191,7 +192,8 @@
     /** 主页筛选工具配置 */
     const SIEVE_CONFIG = {
         paths: ['/', '/latest', '/top', '/new'],
-        refillVisibleTarget: 12,
+        refillVisibleTarget: 15,
+        refillNearBottomThresholdPx: 420,
         refillCooldownMs: 2500,
         refillMaxAttempts: 3,
         refillSettleMs: 1200,
@@ -858,6 +860,16 @@
             return true;
         }
         return saved === '1';
+    }
+
+    /** 获取是否将侧边栏“话题”改为“最新话题” */
+    function getSidebarTopicsToNewState() {
+        return GM_getValue(STORAGE_KEYS.sidebarTopicsToNew, false) === true;
+    }
+
+    /** 设置是否将侧边栏“话题”改为“最新话题” */
+    function setSidebarTopicsToNewState(enabled) {
+        GM_setValue(STORAGE_KEYS.sidebarTopicsToNew, enabled === true);
     }
 
     /**
@@ -1837,6 +1849,7 @@
                 SIEVE_CONFIG.categories.map((item) => item.id)
             );
             this.tagStates = this.readStored(STORAGE_KEYS.sieveTags, {});
+            this.sidebarTopicsToNew = getSidebarTopicsToNewState();
             this.presets = this.readStored(STORAGE_KEYS.sievePresets, {});
         }
 
@@ -2086,6 +2099,7 @@
         renderPanelHTML() {
             const checkIcon = '<svg viewBox="0 0 448 512"><path d="M438.6 105.4c12.5 12.5 12.5 32.8 0 45.3l-256 256c-12.5 12.5-32.8 12.5-45.3 0l-128-128c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0L160 338.7 393.4 105.4c12.5-12.5 32.8-12.5 45.3 0z"></path></svg>';
             const banIcon = '<svg viewBox="0 0 512 512"><path d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM175 175c9.4-9.4 24.6-9.4 33.9 0l47 47 47-47c9.4-9.4 24.6-9.4 33.9 0s9.4 24.6 0 33.9l-47 47 47 47c9.4 9.4 9.4 24.6 0 33.9s-24.6 9.4-33.9 0l-47-47-47 47c-9.4 9.4-24.6 9.4-33.9 0s-9.4-24.6 0-33.9l47-47-47-47c-9.4-9.4-9.4-24.6 0-33.9z"></path></svg>';
+            const sidebarTopicButtonLabel = '话题改为最新话题';
             const levelButtons = SIEVE_CONFIG.levels.map((item) => {
                 const active = this.activeLevels.includes(item.key);
                 return `<span class="linuxdo-sieve-btn${active ? ' active' : ''}" data-type="level" data-key="${item.key}">${active ? checkIcon : ''}${item.label}</span>`;
@@ -2112,6 +2126,10 @@
 
             return `
                 <div class="linuxdo-sieve-status"></div>
+                <div class="linuxdo-sieve-row">
+                    <span class="linuxdo-sieve-title">侧边栏</span>
+                    <span class="linuxdo-sieve-btn${this.sidebarTopicsToNew ? ' active' : ''}" data-type="sidebar-topic-mode" data-key="sidebar-topic-mode">${this.sidebarTopicsToNew ? checkIcon : ''}${sidebarTopicButtonLabel}</span>
+                </div>
                 <div class="linuxdo-sieve-row">
                     <span class="linuxdo-sieve-title">等级</span>
                     <span class="linuxdo-sieve-action" data-action="toggle-level">全选</span>
@@ -2259,7 +2277,11 @@
             const buttonType = button.dataset.type;
             const key = button.dataset.key;
 
-            if (buttonType === 'level') {
+            if (buttonType === 'sidebar-topic-mode') {
+                this.sidebarTopicsToNew = !this.sidebarTopicsToNew;
+                setSidebarTopicsToNewState(this.sidebarTopicsToNew);
+                sidebarTopicsLinkModule?.tick();
+            } else if (buttonType === 'level') {
                 const existingIndex = this.activeLevels.indexOf(key);
                 const label = SIEVE_CONFIG.levels.find((item) => item.key === key)?.label || key;
                 if (existingIndex >= 0) {
@@ -2306,6 +2328,7 @@
                 GM_setValue(STORAGE_KEYS.sieveTags, this.tagStates);
             }
 
+            this.updateButtonStates();
             this.resetRefillState({ resetCooldown: true });
             this.filterDirty = true;
             this.filterTopics();
@@ -2318,6 +2341,11 @@
 
             const checkIcon = '<svg viewBox="0 0 448 512"><path d="M438.6 105.4c12.5 12.5 12.5 32.8 0 45.3l-256 256c-12.5 12.5-32.8 12.5-45.3 0l-128-128c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0L160 338.7 393.4 105.4c12.5-12.5 32.8-12.5 45.3 0z"></path></svg>';
             const banIcon = '<svg viewBox="0 0 512 512"><path d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM175 175c9.4-9.4 24.6-9.4 33.9 0l47 47 47-47c9.4-9.4 24.6-9.4 33.9 0s9.4 24.6 0 33.9l-47 47 47 47c9.4 9.4 9.4 24.6 0 33.9s-24.6 9.4-33.9 0l-47-47-47 47c-9.4 9.4-24.6 9.4-33.9 0s-9.4-24.6 0-33.9l47-47-47-47c-9.4-9.4-9.4-24.6 0-33.9z"></path></svg>';
+
+            this.panel.querySelectorAll('[data-type="sidebar-topic-mode"]').forEach((button) => {
+                button.className = `linuxdo-sieve-btn${this.sidebarTopicsToNew ? ' active' : ''}`;
+                button.innerHTML = `${this.sidebarTopicsToNew ? checkIcon : ''}话题改为最新话题`;
+            });
 
             this.panel.querySelectorAll('[data-type="level"]').forEach((button) => {
                 const key = button.dataset.key;
@@ -2477,6 +2505,16 @@
             this.updateStatus(this.buildStatusText(this.getCurrentFilterResult(currentRowCount)));
         }
 
+        isNearVisibleBottom() {
+            const visibleRows = this.getTopicRows().filter((row) => row.style.display !== 'none');
+            const lastVisibleRow = visibleRows.at(-1);
+            if (!lastVisibleRow) {
+                return false;
+            }
+            const distanceToViewportBottom = lastVisibleRow.getBoundingClientRect().bottom - window.innerHeight;
+            return distanceToViewportBottom <= SIEVE_CONFIG.refillNearBottomThresholdPx;
+        }
+
         shouldTryRefill(filterResult = this.getCurrentFilterResult()) {
             if (!this.isHomePage() || !getSieveSwitchState()) {
                 return false;
@@ -2484,7 +2522,9 @@
             if (!filterResult.hasActiveFilter || filterResult.totalRows === 0) {
                 return false;
             }
-            if (filterResult.visibleCount >= SIEVE_CONFIG.refillVisibleTarget) {
+            const needsRefillByCount = filterResult.visibleCount < SIEVE_CONFIG.refillVisibleTarget;
+            const needsRefillByScroll = this.isNearVisibleBottom();
+            if (!needsRefillByCount && !needsRefillByScroll) {
                 return false;
             }
             if (this.waitingRefillResult || this.isRefilling || this.refillExhausted) {
@@ -4561,6 +4601,103 @@
         }
     }
 
+    // ==================== 侧边栏话题入口 ====================
+
+    /**
+     * 侧边栏话题入口模块
+     * 按开关状态将原“话题”入口改写为“最新话题”。
+     */
+    class SidebarTopicsLinkModule {
+        constructor() {
+            this.loopTimer = null;
+            this.handleTopicsLinkClick = this.handleTopicsLinkClick.bind(this);
+        }
+
+        init() {
+            this.tick();
+            this.startLoop();
+        }
+
+        startLoop() {
+            if (this.loopTimer) {
+                return;
+            }
+            this.loopTimer = window.setInterval(() => this.tick(), 1200);
+        }
+
+        findSidebarTopicsLink() {
+            return document.querySelector(
+                '.sidebar-section-link-wrapper > a[data-link-name="everything"][href="/latest"], ' +
+                '.sidebar-section-link-wrapper > a[data-link-name="everything"][href="/new"], ' +
+                '.sidebar-section-link-wrapper > a[data-link-name="everything"][href="https://linux.do/latest"], ' +
+                '.sidebar-section-link-wrapper > a[data-link-name="everything"][href="https://linux.do/new"]'
+            );
+        }
+
+        handleTopicsLinkClick(event) {
+            if (!getSidebarTopicsToNewState()) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation?.();
+            if (window.location.pathname === '/new') {
+                return;
+            }
+            window.location.href = `${location.origin}/new`;
+        }
+
+        bindTopicsLinkNavigation(link) {
+            if (link.dataset.linuxdoTopicsBound === '1') {
+                return;
+            }
+            link.dataset.linuxdoTopicsBound = '1';
+            link.addEventListener('click', this.handleTopicsLinkClick, true);
+        }
+
+        removeLegacyNewTopicsLink() {
+            document
+                .querySelectorAll('[data-linuxdo-sidebar-link-wrapper="new-topics"]')
+                .forEach((node) => node.remove());
+        }
+
+        updateTopicsLinkState(link, useNewTopicsLink) {
+            const isActive = useNewTopicsLink
+                ? window.location.pathname === '/new'
+                : window.location.pathname === '/latest';
+            link.classList.toggle('active', isActive);
+            if (isActive) {
+                link.setAttribute('aria-current', 'page');
+            } else {
+                link.removeAttribute('aria-current');
+            }
+        }
+
+        ensureTopicsLink() {
+            this.removeLegacyNewTopicsLink();
+            const topicsLink = this.findSidebarTopicsLink();
+            if (!topicsLink) {
+                return;
+            }
+
+            const useNewTopicsLink = getSidebarTopicsToNewState();
+            topicsLink.setAttribute('href', useNewTopicsLink ? '/new' : '/latest');
+            topicsLink.setAttribute('title', useNewTopicsLink ? '最新话题' : '所有话题');
+            this.bindTopicsLinkNavigation(topicsLink);
+
+            const textNode = topicsLink.querySelector('.sidebar-section-link-content-text');
+            if (textNode) {
+                textNode.textContent = useNewTopicsLink ? '最新话题' : '话题';
+            }
+
+            this.updateTopicsLinkState(topicsLink, useNewTopicsLink);
+        }
+
+        tick() {
+            this.ensureTopicsLink();
+        }
+    }
+
     // ==================== 核心功能 ====================
 
     /** 当前运行的滚动定时器引用 */
@@ -4580,6 +4717,9 @@
 
     /** Horizon 配色模块实例 */
     let horizonPaletteModule = null;
+
+    /** 侧边栏话题入口模块实例 */
+    let sidebarTopicsLinkModule = null;
 
     /** 初始化主页筛选工具（只初始化一次） */
     function initHomeSieveTool() {
@@ -4615,6 +4755,15 @@
         }
         horizonPaletteModule = new HorizonPaletteModule();
         horizonPaletteModule.init();
+    }
+
+    /** 初始化侧边栏话题入口模块（只初始化一次） */
+    function initSidebarTopicsLinkTool() {
+        if (sidebarTopicsLinkModule) {
+            return;
+        }
+        sidebarTopicsLinkModule = new SidebarTopicsLinkModule();
+        sidebarTopicsLinkModule.init();
     }
 
     /** 初始化话题预览模块（只初始化一次） */
@@ -4762,6 +4911,7 @@
         await createSieveSwitchIcon(autoSwitchButton);
         updateRunningHaloVisibility();
         initHorizonPaletteTool();
+        initSidebarTopicsLinkTool();
         initTopicPreviewTool();
 
         // 初始化主页筛选工具（由筛选开关控制）
