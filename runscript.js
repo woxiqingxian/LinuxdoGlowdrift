@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.03.23.2221
+// @version      2026.03.23.2313
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 配色注入）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -164,6 +164,11 @@
         preloadRemainingThreshold: 10,
         backgroundBatchSize: 20,
         loopIntervalMs: 900
+    };
+
+    /** Discourse 帖子动作类型 */
+    const POST_ACTION_TYPES = {
+        like: 2
     };
 
     if (ensureDefaultHorizonTheme()) {
@@ -2884,8 +2889,9 @@
                     background: rgba(124, 139, 153, 0.07);
                     border: 1px solid rgba(124, 139, 153, 0.10);
                     border-radius: 12px;
-                    padding: 14px 16px;
+                    padding: 14px 16px 56px;
                     min-width: 0;
+                    position: relative;
                 }
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-author {
                     display: flex;
@@ -2917,6 +2923,49 @@
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-cooked pre {
                     overflow-x: auto;
                 }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-actions {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    position: absolute;
+                    right: 16px;
+                    bottom: 14px;
+                    justify-content: flex-end;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-like {
+                    min-width: 84px;
+                    height: 32px;
+                    padding: 0 12px;
+                    border-radius: 999px;
+                    border: 1px solid rgba(124, 139, 153, 0.18);
+                    background: rgba(255, 255, 255, 0.92);
+                    color: var(--primary-medium, #667789);
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 6px;
+                    font-size: 13px;
+                    font-weight: 600;
+                    transition: border-color 160ms ease, background 160ms ease, color 160ms ease, opacity 160ms ease;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-like:hover {
+                    color: var(--primary, #2f3338);
+                    border-color: rgba(124, 139, 153, 0.34);
+                    background: rgba(124, 139, 153, 0.08);
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-like.is-liked {
+                    color: #8a6548;
+                    border-color: rgba(166, 120, 82, 0.26);
+                    background: rgba(166, 120, 82, 0.12);
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-like.is-loading,
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-like:disabled {
+                    cursor: wait;
+                    opacity: 0.68;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-like-count {
+                    font-variant-numeric: tabular-nums;
+                }
                 html.linuxdo-topic-preview-open,
                 body.linuxdo-topic-preview-open {
                     overflow: hidden !important;
@@ -2937,6 +2986,10 @@
                     }
                     #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-floor {
                         padding-top: 0;
+                    }
+                    #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-actions {
+                        right: 12px;
+                        bottom: 12px;
                     }
                 }
             `;
@@ -3067,6 +3120,18 @@
                 return;
             }
 
+            const likeButton = event.target.closest('[data-role="preview-like"]');
+            if (likeButton) {
+                if (!this.isModifiedPrimaryClick(event)) {
+                    return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation?.();
+                this.togglePreviewPostLike(likeButton);
+                return;
+            }
+
             const closeButton = event.target.closest('[data-role="close"]');
             const mask = event.target.closest('[data-role="mask"]');
             if (closeButton || mask) {
@@ -3133,6 +3198,40 @@
             return `${location.origin}/t/${slug}/${topicId}`;
         }
 
+        getPostLikeCount(post) {
+            const summary = Array.isArray(post?.actions_summary)
+                ? post.actions_summary.find((item) => Number(item?.id) === POST_ACTION_TYPES.like)
+                : null;
+            return Math.max(0, Number(summary?.count) || 0);
+        }
+
+        hasLikedPost(post) {
+            return Boolean(post?.yours);
+        }
+
+        buildPostLikeHtml(post) {
+            const liked = this.hasLikedPost(post);
+            const likeCount = this.getPostLikeCount(post);
+            const postId = Number(post?.id) || 0;
+            return `
+                <div class="linuxdo-topic-preview-actions">
+                    <button
+                        class="linuxdo-topic-preview-like${liked ? ' is-liked' : ''}"
+                        type="button"
+                        data-role="preview-like"
+                        data-post-id="${postId}"
+                        data-liked="${liked ? '1' : '0'}"
+                        data-like-count="${likeCount}"
+                        aria-pressed="${liked ? 'true' : 'false'}"
+                        title="${liked ? '取消点赞' : '点赞此帖子'}"
+                    >
+                        <span class="linuxdo-topic-preview-like-label">${liked ? '已赞' : '点赞'}</span>
+                        <span class="linuxdo-topic-preview-like-count">${likeCount}</span>
+                    </button>
+                </div>
+            `;
+        }
+
         buildPostHtml(post) {
             const displayName = this.escapeHtml(
                 post.display_username || post.name || post.username || '匿名用户'
@@ -3141,7 +3240,7 @@
             const createdAt = this.escapeHtml(this.formatDate(post.created_at));
             const floorNumber = Number(post.post_number) || 0;
             return `
-                <article class="linuxdo-topic-preview-item">
+                <article class="linuxdo-topic-preview-item" data-post-id="${Number(post?.id) || 0}">
                     <div class="linuxdo-topic-preview-floor">${floorNumber} 楼</div>
                     <div class="linuxdo-topic-preview-post">
                         <div class="linuxdo-topic-preview-author">
@@ -3150,9 +3249,139 @@
                             <span class="linuxdo-topic-preview-date">${createdAt}</span>
                         </div>
                         <div class="linuxdo-topic-preview-cooked">${post.cooked || ''}</div>
+                        ${this.buildPostLikeHtml(post)}
                     </div>
                 </article>
             `;
+        }
+
+        getCsrfToken() {
+            return document.querySelector('meta[name="csrf-token"]')?.content || '';
+        }
+
+        setPreviewLikeButtonState(button, liked, likeCount, isLoading = false, tempLabel = '') {
+            if (!button) {
+                return;
+            }
+
+            const normalizedCount = Math.max(0, Number(likeCount) || 0);
+            const label = tempLabel || (liked ? '已赞' : '点赞');
+            const labelNode = button.querySelector('.linuxdo-topic-preview-like-label');
+            const countNode = button.querySelector('.linuxdo-topic-preview-like-count');
+
+            button.dataset.liked = liked ? '1' : '0';
+            button.dataset.likeCount = String(normalizedCount);
+            button.disabled = isLoading;
+            button.classList.toggle('is-liked', liked);
+            button.classList.toggle('is-loading', isLoading);
+            button.setAttribute('aria-pressed', liked ? 'true' : 'false');
+            button.title = liked ? '取消点赞' : '点赞此帖子';
+
+            if (labelNode) {
+                labelNode.textContent = label;
+            }
+            if (countNode) {
+                countNode.textContent = String(normalizedCount);
+            }
+        }
+
+        flashPreviewLikeButton(button, liked, likeCount, tempLabel) {
+            if (!button) {
+                return;
+            }
+
+            const flashToken = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            button.dataset.flashToken = flashToken;
+            this.setPreviewLikeButtonState(button, liked, likeCount, false, tempLabel);
+
+            window.setTimeout(() => {
+                if (!button.isConnected || button.dataset.flashToken !== flashToken) {
+                    return;
+                }
+                delete button.dataset.flashToken;
+                this.setPreviewLikeButtonState(button, liked, likeCount, false);
+            }, 1800);
+        }
+
+        async createPreviewPostLike(postId, csrfToken) {
+            const body = new URLSearchParams({
+                id: String(postId),
+                post_action_type_id: String(POST_ACTION_TYPES.like),
+                flag_topic: 'false'
+            });
+            const response = await fetch(`${location.origin}/post_actions.json`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'X-CSRF-Token': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: body.toString()
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+        }
+
+        async removePreviewPostLike(postId, csrfToken) {
+            const query = new URLSearchParams({
+                post_action_type_id: String(POST_ACTION_TYPES.like)
+            });
+            const response = await fetch(
+                `${location.origin}/post_actions/${encodeURIComponent(postId)}.json?${query.toString()}`,
+                {
+                    method: 'DELETE',
+                    credentials: 'same-origin',
+                    headers: {
+                        Accept: 'application/json',
+                        'X-CSRF-Token': csrfToken,
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                }
+            );
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+        }
+
+        async togglePreviewPostLike(button) {
+            if (!button || button.classList.contains('is-loading')) {
+                return;
+            }
+
+            const postId = Number(button.dataset.postId) || 0;
+            const liked = button.dataset.liked === '1';
+            const likeCount = Math.max(0, Number(button.dataset.likeCount) || 0);
+            const csrfToken = this.getCsrfToken();
+
+            if (!postId) {
+                this.flashPreviewLikeButton(button, liked, likeCount, '无效楼层');
+                return;
+            }
+
+            if (!csrfToken) {
+                this.flashPreviewLikeButton(button, liked, likeCount, '请先登录');
+                return;
+            }
+
+            this.setPreviewLikeButtonState(button, liked, likeCount, true);
+
+            try {
+                if (liked) {
+                    await this.removePreviewPostLike(postId, csrfToken);
+                    this.setPreviewLikeButtonState(button, false, Math.max(0, likeCount - 1), false);
+                    return;
+                }
+
+                await this.createPreviewPostLike(postId, csrfToken);
+                this.setPreviewLikeButtonState(button, true, likeCount + 1, false);
+            } catch (error) {
+                console.error('话题预览点赞失败:', error);
+                this.setPreviewLikeButtonState(button, liked, likeCount, false);
+                this.flashPreviewLikeButton(button, liked, likeCount, '稍后重试');
+            }
         }
 
         updatePreviewProgress(loadedCount, totalTarget, totalPostCount, isLoadingMore = false) {
