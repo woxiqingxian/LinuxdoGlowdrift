@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.03.04.1143
-// @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 双开关控制）
+// @version      2026.03.23.1959
+// @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 配色注入）
 // @author       Cressida
 // @match        https://linux.do/*
 // @grant        GM_setValue
 // @grant        GM_getValue
-// @run-at       document-idle
+// @run-at       document-start
 // @downloadURL  https://raw.githubusercontent.com/woxiqingxian/LinuxdoGlowdrift/main/runscript.js
 // @updateURL    https://raw.githubusercontent.com/woxiqingxian/LinuxdoGlowdrift/main/runscript.js
 // ==/UserScript==
@@ -118,7 +118,8 @@
         sieveLevels: 'linuxdoSieveLevels',
         sieveCats: 'linuxdoSieveCats',
         sieveTags: 'linuxdoSieveTags',
-        sievePresets: 'linuxdoSievePresets'
+        sievePresets: 'linuxdoSievePresets',
+        horizonPalette: 'linuxdoHorizonPalette'
     };
 
     /** 当前标签页会话存储键名（用于区分不同窗口/标签） */
@@ -141,8 +142,20 @@
         runningHaloStyle: 'linuxdo-running-halo-style',
         toggleButtonStyle: 'linuxdo-toggle-button-style',
         roamDurationReminder: 'linuxdo-roam-duration-reminder',
-        roamDurationReminderStyle: 'linuxdo-roam-duration-reminder-style'
+        roamDurationReminderStyle: 'linuxdo-roam-duration-reminder-style',
+        horizonPaletteStyle: 'linuxdo-horizon-palette-style',
+        hiddenThirdPartyStyle: 'linuxdo-hidden-third-party-style'
     };
+
+    /** Horizon 主题配色注入配置 */
+    const HORIZON_THEME_CONFIG = {
+        themeId: '-2',
+        paletteDefault: 'default',
+        paletteBeige: 'beige',
+        beigeActiveClass: 'linuxdo-horizon-beige-active'
+    };
+
+    applyEarlyHorizonPaletteBoot();
 
     /** 统一主题色（蓝色） */
     const UI_THEME = {
@@ -1048,6 +1061,39 @@
         }
     }
 
+    /** 隐藏不需要的第三方按钮 */
+    function ensureHiddenThirdPartyStyle() {
+        if (document.getElementById(UI_IDS.hiddenThirdPartyStyle)) {
+            return;
+        }
+
+        const style = document.createElement('style');
+        style.id = UI_IDS.hiddenThirdPartyStyle;
+        style.textContent = `
+            .donottopic-btn {
+                display: none !important;
+            }
+
+            .sidebar-wrapper,
+            .sidebar-container,
+            .sidebar-scroll-wrap,
+            .sidebar-sections {
+                scrollbar-width: none;
+                -ms-overflow-style: none;
+            }
+
+            .sidebar-wrapper::-webkit-scrollbar,
+            .sidebar-container::-webkit-scrollbar,
+            .sidebar-scroll-wrap::-webkit-scrollbar,
+            .sidebar-sections::-webkit-scrollbar {
+                width: 0 !important;
+                height: 0 !important;
+                display: none !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
     /** 更新“已漫游时长”提醒显示状态 */
     function updateRoamDurationReminderVisibility(enabledState) {
         ensureRoamDurationReminder();
@@ -1462,6 +1508,199 @@
                 text: element.textContent.trim()
             }))
             .filter(link => link.href);
+    }
+
+    /** 读取指定 Cookie 值 */
+    function getCookieValue(cookieName) {
+        const escapedName = cookieName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${escapedName}=([^;]*)`));
+        return match ? decodeURIComponent(match[1]) : '';
+    }
+
+    /** 读取当前主题 ID */
+    function getCurrentThemeId() {
+        const rawThemeIds = getCookieValue('theme_ids');
+        if (!rawThemeIds) {
+            return '';
+        }
+        return rawThemeIds.split('|')[0] || '';
+    }
+
+    /** 将样式节点插入文档，兼容 document-start 时机 */
+    function appendStyleNode(styleElement) {
+        const target = document.head || document.documentElement;
+        if (target) {
+            target.appendChild(styleElement);
+        }
+    }
+
+    /** Horizon 自定义配色样式文本 */
+    function getHorizonPaletteStyleText() {
+        return `
+            .linuxdo-horizon-beige-menu-item .user-color-palette-menu__item-choice {
+                position: relative;
+            }
+            .linuxdo-horizon-beige-menu-item.active .user-color-palette-menu__item-choice {
+                color: #667789;
+                font-weight: 700;
+            }
+            .linuxdo-horizon-beige-menu-item.active .user-color-palette-menu__item-choice::after {
+                content: '当前';
+                margin-left: auto;
+                font-size: 11px;
+                color: #7c8b99;
+                opacity: 0.95;
+            }
+            :root.${HORIZON_THEME_CONFIG.beigeActiveClass} {
+                color-scheme: light;
+                --primary: #2f3338;
+                --primary-rgb: 47, 51, 56;
+                --primary-very-high: #43484f;
+                --primary-800: #575e67;
+                --primary-700: #6a737d;
+                --primary-400: #c8ced5;
+                --primary-300: #d9dde2;
+                --primary-low-mid: #dfe4e8;
+                --primary-low: #e9edf0;
+                --primary-very-low: #f7f8fa;
+                --primary-or-primary-low-mid: #2f3338;
+                --primary-med-or-secondary-high: #828b95;
+                --secondary: #fbfbfc;
+                --secondary-rgb: 251, 251, 252;
+                --header_background: #f3f4f6;
+                --header_background-rgb: 243, 244, 246;
+                --header_primary: #31363c;
+                --header_primary-very-high: #4a5057;
+                --header_primary-low: #f8f9fa;
+                --header_primary-low-mid: #dde2e7;
+                --tertiary: #7c8b99;
+                --tertiary-rgb: 124, 139, 153;
+                --tertiary-hover: #697886;
+                --tertiary-medium: #bcc7d1;
+                --tertiary-low-or-tertiary-high: #e3e9ee;
+                --tertiary-very-low: #f3f6f8;
+                --tertiary-or-white: #7c8b99;
+                --quaternary: #9aa6b1;
+                --highlight: #ece8b8;
+                --love: #c7848b;
+                --danger: #b86262;
+                --success: #6f9078;
+                --link-color: #667789;
+                --d-link-color: #667789;
+                --d-hover: rgba(124, 139, 153, 0.12);
+                --d-selected-hover: #ebeff3;
+                --d-nav-color: #4f5963;
+                --d-nav-color--hover: #667789;
+                --d-nav-border-color--active: #7c8b99;
+                --d-sidebar-background: linear-gradient(180deg, #f7f8fa 0%, #f2f4f6 100%);
+                --d-sidebar-border-color: rgba(124, 139, 153, 0.18);
+                --d-sidebar-highlight-background: rgba(124, 139, 153, 0.12);
+                --d-sidebar-highlight-hover-background: rgba(124, 139, 153, 0.18);
+                --d-sidebar-highlight-color: #31363c;
+                --d-sidebar-highlight-prefix-color: #4f5963;
+                --d-sidebar-highlight-suffix-color: #667789;
+                --d-sidebar-link-icon-color: #7a8794;
+                --d-sidebar-active-icon-color: #667789;
+                --d-sidebar-header-color: #7a8794;
+                --d-sidebar-prefix-color: #7a8794;
+                --topic-list-item-background-color: #ffffff;
+                --topic-list-item-background-color--visited: #fbfcfd;
+                --topic-card-shadow: rgba(93, 103, 113, 0.08);
+                --content-border-color: rgba(93, 103, 113, 0.12);
+                --d-button-primary-bg-color: #7c8b99;
+                --d-button-primary-bg-color--hover: #697886;
+                --d-button-primary-text-color: #ffffff;
+                --d-button-primary-text-color--hover: #ffffff;
+                --d-button-primary-icon-color: #ffffff;
+                --d-button-primary-icon-color--hover: #ffffff;
+                --d-button-default-bg-color: #edf1f4;
+                --d-button-default-text-color--hover: #ffffff;
+                --d-button-flat-bg-color--hover: rgba(124, 139, 153, 0.12);
+                --d-button-flat-bg-color--focus: rgba(124, 139, 153, 0.16);
+                --d-button-flat-text-color--hover: #4f5963;
+                --d-button-flat-icon-color--hover: #4f5963;
+                --d-button-transparent-text-color--hover: #667789;
+                --d-button-transparent-icon-color--hover: #667789;
+                --d-input-border: 1px solid rgba(93, 103, 113, 0.16);
+                --d-input-bg-color--disabled: #f1f3f5;
+                --d-input-text-color: #2f3338;
+                --jss_menu_background: #ffffff;
+                --jss_header_background: #f4f6f7;
+                --jss_header_background_highlighted: #e9edf1;
+                --jss_header_color: #707983;
+                --jss_content_color: #2f3338;
+                --jss_content_color_highlighted: #707983;
+                --reader-mode-bg-color: #ffffff;
+                --fc-page-bg-color: #f8f9fb;
+                --vimium-background-color: #ffffff;
+                --vimium-foreground-text-color: #2f3338;
+            }
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} body {
+                background:
+                    radial-gradient(circle at top, rgba(232, 236, 240, 0.72), rgba(232, 236, 240, 0) 38%),
+                    linear-gradient(180deg, #fafbfc 0%, #f6f7f9 320px, #f8f9fb 100%) !important;
+                color: #2f3338;
+            }
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} .d-header {
+                background: rgba(245, 246, 248, 0.88) !important;
+                border-bottom: 1px solid rgba(93, 103, 113, 0.10);
+                backdrop-filter: blur(18px);
+            }
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} .sidebar-wrapper,
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} .sidebar-container,
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} .menu-panel,
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} .select-kit-header,
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} .select-kit-body,
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} .fk-d-menu,
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} .search-menu,
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} .d-modal__container {
+                background: #ffffff;
+                border-color: rgba(93, 103, 113, 0.12);
+                box-shadow: 0 12px 28px rgba(93, 103, 113, 0.07);
+            }
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} .topic-list-body tr.topic-list-item > td,
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} .topic-post,
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} .discourse-post-container,
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} .category-box,
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} .category-list tbody tr {
+                background: #ffffff;
+                border-color: rgba(93, 103, 113, 0.10);
+            }
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} .btn-primary {
+                box-shadow: 0 10px 22px rgba(93, 103, 113, 0.12);
+            }
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} input,
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} textarea,
+            html.${HORIZON_THEME_CONFIG.beigeActiveClass} select {
+                background: #ffffff;
+                border-color: rgba(93, 103, 113, 0.14);
+            }
+        `;
+    }
+
+    /** 启动早期配色注入，避免页面先闪回原始 Horizon 配色 */
+    function applyEarlyHorizonPaletteBoot() {
+        const savedPalette = GM_getValue(
+            STORAGE_KEYS.horizonPalette,
+            HORIZON_THEME_CONFIG.paletteDefault
+        );
+        if (savedPalette !== HORIZON_THEME_CONFIG.paletteBeige) {
+            return;
+        }
+        if (getCurrentThemeId() !== HORIZON_THEME_CONFIG.themeId) {
+            return;
+        }
+
+        document.documentElement.classList.add(HORIZON_THEME_CONFIG.beigeActiveClass);
+
+        if (document.getElementById(UI_IDS.horizonPaletteStyle)) {
+            return;
+        }
+
+        const style = document.createElement('style');
+        style.id = UI_IDS.horizonPaletteStyle;
+        style.textContent = getHorizonPaletteStyleText();
+        appendStyleNode(style);
     }
 
     // ==================== 主页筛选工具 ====================
@@ -2188,6 +2427,170 @@
         }
     }
 
+    // ==================== Horizon 配色注入 ====================
+
+    /**
+     * Horizon 主题配色模块
+     * 在站点原生 Horizon 主题下额外注入“米色”配色按钮与对应样式。
+     */
+    class HorizonPaletteModule {
+        constructor() {
+            this.loopTimer = null;
+        }
+
+        init() {
+            this.ensureStyles();
+            this.tick();
+            this.startLoop();
+        }
+
+        startLoop() {
+            if (this.loopTimer) {
+                return;
+            }
+            this.loopTimer = window.setInterval(() => this.tick(), 900);
+        }
+
+        getPaletteState() {
+            const saved = GM_getValue(
+                STORAGE_KEYS.horizonPalette,
+                HORIZON_THEME_CONFIG.paletteDefault
+            );
+            return saved === HORIZON_THEME_CONFIG.paletteBeige
+                ? HORIZON_THEME_CONFIG.paletteBeige
+                : HORIZON_THEME_CONFIG.paletteDefault;
+        }
+
+        setPaletteState(nextPalette) {
+            const normalized = nextPalette === HORIZON_THEME_CONFIG.paletteBeige
+                ? HORIZON_THEME_CONFIG.paletteBeige
+                : HORIZON_THEME_CONFIG.paletteDefault;
+            GM_setValue(STORAGE_KEYS.horizonPalette, normalized);
+        }
+
+        isHorizonThemeActive() {
+            if (getCurrentThemeId() === HORIZON_THEME_CONFIG.themeId) {
+                return true;
+            }
+
+            return Array.from(document.querySelectorAll('link[href*="color_definitions_scheme"]'))
+                .some((link) => link.href.includes(`_${HORIZON_THEME_CONFIG.themeId}_`));
+        }
+
+        shouldApplyBeigePalette() {
+            return this.isHorizonThemeActive() &&
+                this.getPaletteState() === HORIZON_THEME_CONFIG.paletteBeige;
+        }
+
+        applyPaletteClass() {
+            document.documentElement.classList.toggle(
+                HORIZON_THEME_CONFIG.beigeActiveClass,
+                this.shouldApplyBeigePalette()
+            );
+        }
+
+        getMenuContent() {
+            return document.querySelector('.user-color-palette-menu__content');
+        }
+
+        getNativePaletteButtons() {
+            return Array.from(
+                document.querySelectorAll('.user-color-palette-menu__item-choice')
+            );
+        }
+
+        getInjectedPaletteItem() {
+            return document.querySelector('.linuxdo-horizon-beige-menu-item');
+        }
+
+        ensureStyles() {
+            if (document.getElementById(UI_IDS.horizonPaletteStyle)) {
+                return;
+            }
+
+            const style = document.createElement('style');
+            style.id = UI_IDS.horizonPaletteStyle;
+            style.textContent = getHorizonPaletteStyleText();
+            appendStyleNode(style);
+        }
+
+        removeInjectedPaletteItem() {
+            const item = this.getInjectedPaletteItem();
+            if (item) {
+                item.remove();
+            }
+        }
+
+        bindNativePaletteReset() {
+            this.getNativePaletteButtons().forEach((button) => {
+                if (button.dataset.linuxdoBeigeBound === '1') {
+                    return;
+                }
+                button.dataset.linuxdoBeigeBound = '1';
+                button.addEventListener('click', () => {
+                    if (button.closest('.linuxdo-horizon-beige-menu-item')) {
+                        return;
+                    }
+                    this.setPaletteState(HORIZON_THEME_CONFIG.paletteDefault);
+                    this.applyPaletteClass();
+                    this.syncInjectedPaletteState();
+                });
+            });
+        }
+
+        syncInjectedPaletteState() {
+            const item = this.getInjectedPaletteItem();
+            if (!item) {
+                return;
+            }
+            item.classList.toggle(
+                'active',
+                this.getPaletteState() === HORIZON_THEME_CONFIG.paletteBeige
+            );
+        }
+
+        ensureInjectedPaletteItem() {
+            const isHorizon = this.isHorizonThemeActive();
+            const menuContent = this.getMenuContent();
+
+            if (!isHorizon || !menuContent) {
+                this.removeInjectedPaletteItem();
+                return;
+            }
+
+            let item = this.getInjectedPaletteItem();
+            if (!item) {
+                item = document.createElement('div');
+                item.className = 'user-color-palette-menu__item linuxdo-horizon-beige-menu-item';
+                item.dataset.colorPalette = 'Beige';
+                item.innerHTML = `
+                    <button class="btn btn-icon-text btn-flat user-color-palette-menu__item-choice" style="--icon-color: #a67852" type="button">
+                        <svg class="fa d-icon d-icon-circle svg-icon fa-width-auto svg-string" width="1em" height="1em" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><use href="#circle"></use></svg>
+                        <span class="d-button-label">Beige<!----></span>
+                    </button>
+                `;
+                const button = item.querySelector('button');
+                button.addEventListener('click', () => {
+                    this.setPaletteState(HORIZON_THEME_CONFIG.paletteBeige);
+                    this.applyPaletteClass();
+                    this.syncInjectedPaletteState();
+                });
+            }
+
+            if (item.parentElement !== menuContent) {
+                menuContent.appendChild(item);
+            }
+
+            this.bindNativePaletteReset();
+            this.syncInjectedPaletteState();
+        }
+
+        tick() {
+            this.applyPaletteClass();
+            this.ensureInjectedPaletteItem();
+        }
+    }
+
     // ==================== 核心功能 ====================
 
     /** 当前运行的滚动定时器引用 */
@@ -2201,6 +2604,9 @@
 
     /** 主页筛选工具实例 */
     let homeSieveModule = null;
+
+    /** Horizon 配色模块实例 */
+    let horizonPaletteModule = null;
 
     /** 初始化主页筛选工具（只初始化一次） */
     function initHomeSieveTool() {
@@ -2227,6 +2633,15 @@
         } else {
             destroyHomeSieveTool();
         }
+    }
+
+    /** 初始化 Horizon 配色注入模块（只初始化一次） */
+    function initHorizonPaletteTool() {
+        if (horizonPaletteModule) {
+            return;
+        }
+        horizonPaletteModule = new HorizonPaletteModule();
+        horizonPaletteModule.init();
     }
 
     /**
@@ -2360,10 +2775,13 @@
      * 主初始化函数
      */
     async function main() {
+        ensureHiddenThirdPartyStyle();
+
         // 创建控制开关按钮
         const autoSwitchButton = await createSwitchIcon();
         await createSieveSwitchIcon(autoSwitchButton);
         updateRunningHaloVisibility();
+        initHorizonPaletteTool();
 
         // 初始化主页筛选工具（由筛选开关控制）
         applySieveToolState();
