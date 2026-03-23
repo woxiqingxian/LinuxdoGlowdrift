@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.03.23.2137
+// @version      2026.03.23.2221
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 配色注入）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -128,7 +128,8 @@
         migrated: 'linuxdoHelperLegacySwitchMigrated',
         sieveEnabled: 'linuxdoSieveEnabledInTab',
         startedAt: 'linuxdoHelperStartedAtInTab',
-        accountedAt: 'linuxdoHelperAccountedAtInTab'
+        accountedAt: 'linuxdoHelperAccountedAtInTab',
+        horizonThemeForced: 'linuxdoHorizonThemeForcedInTab'
     };
 
     /** 页面URL */
@@ -144,7 +145,9 @@
         roamDurationReminder: 'linuxdo-roam-duration-reminder',
         roamDurationReminderStyle: 'linuxdo-roam-duration-reminder-style',
         horizonPaletteStyle: 'linuxdo-horizon-palette-style',
-        hiddenThirdPartyStyle: 'linuxdo-hidden-third-party-style'
+        hiddenThirdPartyStyle: 'linuxdo-hidden-third-party-style',
+        topicPreviewStyle: 'linuxdo-topic-preview-style',
+        topicPreviewRoot: 'linuxdo-topic-preview-root'
     };
 
     /** Horizon 主题配色注入配置 */
@@ -154,6 +157,18 @@
         paletteBeige: 'beige',
         beigeActiveClass: 'linuxdo-horizon-beige-active'
     };
+
+    /** 话题预览配置 */
+    const TOPIC_PREVIEW_CONFIG = {
+        initialPosts: 30,
+        preloadRemainingThreshold: 10,
+        backgroundBatchSize: 20,
+        loopIntervalMs: 900
+    };
+
+    if (ensureDefaultHorizonTheme()) {
+        return;
+    }
 
     applyEarlyHorizonPaletteBoot();
 
@@ -1530,6 +1545,33 @@
         return rawThemeIds.split('|')[0] || '';
     }
 
+    /** 设置站点主题 Cookie */
+    function setCurrentThemeId(themeId) {
+        const rawThemeIds = getCookieValue('theme_ids');
+        const separatorIndex = rawThemeIds.indexOf('|');
+        const suffix = separatorIndex >= 0 ? rawThemeIds.slice(separatorIndex + 1) : '';
+        const nextThemeIds = suffix ? `${themeId}|${suffix}` : themeId;
+        document.cookie = `theme_ids=${encodeURIComponent(nextThemeIds)}; path=/; max-age=31536000; SameSite=Lax`;
+    }
+
+    /** 确保默认使用 Horizon 主题 */
+    function ensureDefaultHorizonTheme() {
+        const currentThemeId = getCurrentThemeId();
+        if (currentThemeId === HORIZON_THEME_CONFIG.themeId) {
+            sessionStorage.removeItem(SESSION_KEYS.horizonThemeForced);
+            return false;
+        }
+
+        if (sessionStorage.getItem(SESSION_KEYS.horizonThemeForced) === '1') {
+            return false;
+        }
+
+        sessionStorage.setItem(SESSION_KEYS.horizonThemeForced, '1');
+        setCurrentThemeId(HORIZON_THEME_CONFIG.themeId);
+        window.location.replace(window.location.href);
+        return true;
+    }
+
     /** 将样式节点插入文档，兼容 document-start 时机 */
     function appendStyleNode(styleElement) {
         const target = document.head || document.documentElement;
@@ -2625,6 +2667,750 @@
         }
     }
 
+    // ==================== 话题预览 ====================
+
+    /**
+     * 话题预览模块
+     * 在话题列表标题旁注入预览按钮，点击后拉取主题 JSON 并默认显示前 30 楼内容。
+     */
+    class TopicPreviewModule {
+        constructor() {
+            this.loopTimer = null;
+            this.lastUrl = location.href;
+            this.activePreviewRequestId = 0;
+            this.previewState = null;
+            this.handleDocumentClick = this.handleDocumentClick.bind(this);
+            this.handleKeyDown = this.handleKeyDown.bind(this);
+            this.handlePreviewBodyScroll = this.handlePreviewBodyScroll.bind(this);
+        }
+
+        init() {
+            this.ensureStyles();
+            this.ensureModal();
+            this.getPreviewBody()?.addEventListener('scroll', this.handlePreviewBodyScroll);
+            document.addEventListener('click', this.handleDocumentClick, true);
+            document.addEventListener('keydown', this.handleKeyDown);
+            this.tick();
+            this.startLoop();
+        }
+
+        destroy() {
+            if (this.loopTimer) {
+                clearInterval(this.loopTimer);
+                this.loopTimer = null;
+            }
+            this.getPreviewBody()?.removeEventListener('scroll', this.handlePreviewBodyScroll);
+            document.removeEventListener('click', this.handleDocumentClick, true);
+            document.removeEventListener('keydown', this.handleKeyDown);
+            this.closePreview();
+        }
+
+        startLoop() {
+            if (this.loopTimer) {
+                return;
+            }
+            this.loopTimer = window.setInterval(() => this.tick(), TOPIC_PREVIEW_CONFIG.loopIntervalMs);
+        }
+
+        tick() {
+            if (location.href !== this.lastUrl) {
+                this.lastUrl = location.href;
+                if (!this.hasTopicList()) {
+                    this.closePreview();
+                }
+            }
+            this.ensurePreviewButtons();
+        }
+
+        hasTopicList() {
+            return Boolean(document.querySelector('.topic-list .main-link a.title[data-topic-id]'));
+        }
+
+        ensureStyles() {
+            if (document.getElementById(UI_IDS.topicPreviewStyle)) {
+                return;
+            }
+
+            const style = document.createElement('style');
+            style.id = UI_IDS.topicPreviewStyle;
+            style.textContent = `
+                .linuxdo-topic-preview-trigger {
+                    height: 28px;
+                    min-width: 58px;
+                    padding: 0 10px;
+                    margin-left: 6px;
+                    border-radius: 7px;
+                    border: 1px solid rgba(124, 139, 153, 0.20);
+                    background: rgba(124, 139, 153, 0.08);
+                    color: var(--primary-medium, #667789);
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 6px;
+                    vertical-align: middle;
+                    opacity: 1;
+                    font-size: 12px;
+                    font-weight: 600;
+                    line-height: 1;
+                    white-space: nowrap;
+                    transition: border-color 160ms ease, color 160ms ease, background 160ms ease;
+                }
+                .linuxdo-topic-preview-trigger:hover {
+                    color: var(--primary, #2f3338);
+                    border-color: rgba(124, 139, 153, 0.36);
+                    background: rgba(124, 139, 153, 0.14);
+                }
+                .linuxdo-topic-preview-trigger svg {
+                    width: 14px;
+                    height: 14px;
+                    stroke: currentColor;
+                }
+                #${UI_IDS.topicPreviewRoot} {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 99999;
+                    display: none;
+                }
+                #${UI_IDS.topicPreviewRoot}.visible {
+                    display: block;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-mask {
+                    position: absolute;
+                    inset: 0;
+                    background: rgba(15, 23, 42, 0.54);
+                    backdrop-filter: blur(4px);
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-panel {
+                    position: absolute;
+                    left: 50%;
+                    top: 50%;
+                    transform: translate(-50%, -50%);
+                    width: min(920px, calc(100vw - 32px));
+                    height: 90vh;
+                    border-radius: 16px;
+                    overflow: hidden;
+                    background: var(--secondary, #ffffff);
+                    color: var(--primary, #2f3338);
+                    box-shadow: 0 24px 64px rgba(15, 23, 42, 0.24);
+                    border: 1px solid rgba(124, 139, 153, 0.14);
+                    display: flex;
+                    flex-direction: column;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-header {
+                    padding: 22px 26px 14px;
+                    border-bottom: 1px solid rgba(124, 139, 153, 0.12);
+                    background: linear-gradient(180deg, rgba(124, 139, 153, 0.08), rgba(124, 139, 153, 0.02));
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-title {
+                    margin: 0;
+                    font-size: 22px;
+                    line-height: 1.4;
+                    font-weight: 700;
+                    word-break: break-word;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-meta {
+                    margin-top: 8px;
+                    color: var(--primary-medium, #6b7280);
+                    font-size: 13px;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-body {
+                    flex: 1;
+                    overflow-y: auto;
+                    padding: 10px 0 0;
+                    background: var(--secondary, #ffffff);
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-footer {
+                    padding: 14px 26px 18px;
+                    border-top: 1px solid rgba(124, 139, 153, 0.12);
+                    font-size: 13px;
+                    color: var(--primary-medium, #6b7280);
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    gap: 12px;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-more {
+                    color: var(--link-color, #667789);
+                    font-weight: 600;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-close {
+                    position: absolute;
+                    top: 16px;
+                    right: 16px;
+                    width: 34px;
+                    height: 34px;
+                    border-radius: 999px;
+                    border: 1px solid rgba(124, 139, 153, 0.16);
+                    background: rgba(255, 255, 255, 0.82);
+                    color: var(--primary-medium, #6b7280);
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-close:hover {
+                    color: var(--primary, #2f3338);
+                    border-color: rgba(124, 139, 153, 0.3);
+                    background: rgba(255, 255, 255, 0.96);
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-loading,
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-error {
+                    padding: 72px 24px;
+                    text-align: center;
+                    color: var(--primary-medium, #6b7280);
+                    font-size: 15px;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-error {
+                    color: #b86262;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-item {
+                    display: grid;
+                    grid-template-columns: 60px 1fr;
+                    gap: 14px;
+                    padding: 16px 26px;
+                    align-items: start;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-item + .linuxdo-topic-preview-item {
+                    border-top: 1px solid rgba(124, 139, 153, 0.08);
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-floor {
+                    font-size: 14px;
+                    color: var(--tertiary, #7c8b99);
+                    font-weight: 700;
+                    padding-top: 6px;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-post {
+                    background: rgba(124, 139, 153, 0.07);
+                    border: 1px solid rgba(124, 139, 153, 0.10);
+                    border-radius: 12px;
+                    padding: 14px 16px;
+                    min-width: 0;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-author {
+                    display: flex;
+                    align-items: baseline;
+                    gap: 10px;
+                    flex-wrap: wrap;
+                    margin-bottom: 10px;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-author strong {
+                    font-size: 15px;
+                    color: var(--primary, #2f3338);
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-username,
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-date {
+                    font-size: 12px;
+                    color: var(--primary-medium, #6b7280);
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-cooked {
+                    font-size: 14px;
+                    line-height: 1.72;
+                    word-break: break-word;
+                    overflow-wrap: anywhere;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-cooked img {
+                    max-width: 100%;
+                    height: auto;
+                    border-radius: 8px;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-cooked pre {
+                    overflow-x: auto;
+                }
+                html.linuxdo-topic-preview-open,
+                body.linuxdo-topic-preview-open {
+                    overflow: hidden !important;
+                }
+                @media (max-width: 768px) {
+                    .linuxdo-topic-preview-trigger {
+                        min-width: 54px;
+                        padding: 0 9px;
+                    }
+                    #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-panel {
+                        width: calc(100vw - 18px);
+                        height: calc(100vh - 18px);
+                        border-radius: 14px;
+                    }
+                    #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-item {
+                        grid-template-columns: 1fr;
+                        gap: 8px;
+                    }
+                    #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-floor {
+                        padding-top: 0;
+                    }
+                }
+            `;
+            appendStyleNode(style);
+        }
+
+        ensureModal() {
+            let root = document.getElementById(UI_IDS.topicPreviewRoot);
+            if (root) {
+                return root;
+            }
+
+            root = document.createElement('div');
+            root.id = UI_IDS.topicPreviewRoot;
+            root.innerHTML = `
+                <div class="linuxdo-topic-preview-mask" data-role="mask"></div>
+                <div class="linuxdo-topic-preview-panel" role="dialog" aria-modal="true" aria-label="话题预览">
+                    <button class="linuxdo-topic-preview-close" type="button" aria-label="关闭预览" data-role="close">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M18 6 6 18"></path>
+                            <path d="m6 6 12 12"></path>
+                        </svg>
+                    </button>
+                    <div class="linuxdo-topic-preview-header">
+                        <h2 class="linuxdo-topic-preview-title">正在加载中...</h2>
+                        <div class="linuxdo-topic-preview-meta"></div>
+                    </div>
+                    <div class="linuxdo-topic-preview-body">
+                        <div class="linuxdo-topic-preview-loading">正在加载中...</div>
+                    </div>
+                    <div class="linuxdo-topic-preview-footer">
+                        <span class="linuxdo-topic-preview-hint">先显示前 ${TOPIC_PREVIEW_CONFIG.initialPosts} 楼，下拉接近底部时自动加载更多</span>
+                        <a class="linuxdo-topic-preview-more" href="/" target="_blank" rel="noopener noreferrer">查看完整话题</a>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(root);
+            return root;
+        }
+
+        getModalRoot() {
+            return document.getElementById(UI_IDS.topicPreviewRoot);
+        }
+
+        getPreviewBody() {
+            return this.getModalRoot()?.querySelector('.linuxdo-topic-preview-body') || null;
+        }
+
+        ensurePreviewButtons() {
+            const links = document.querySelectorAll('.topic-list .main-link a.title[data-topic-id]');
+            links.forEach((link) => {
+                const line = link.closest('.link-top-line');
+                const topicId = link.getAttribute('data-topic-id');
+                if (!line || !topicId || line.querySelector('.linuxdo-topic-preview-trigger')) {
+                    return;
+                }
+
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'btn btn-flat linuxdo-topic-preview-trigger';
+                button.dataset.topicId = topicId;
+                button.dataset.topicHref = link.href;
+                button.setAttribute('aria-label', '新标签页打开话题');
+                button.title = '新标签页打开';
+                button.innerHTML = `
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M14 5h5v5"></path>
+                        <path d="M10 14 19 5"></path>
+                        <path d="M19 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4"></path>
+                    </svg>
+                    <span>新开</span>
+                `;
+                line.appendChild(button);
+            });
+        }
+
+        isModifiedPrimaryClick(event) {
+            return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
+        }
+
+        getTopicInfoFromRow(row) {
+            const titleLink = row?.querySelector('.main-link a.title[data-topic-id]');
+            if (!titleLink) {
+                return null;
+            }
+            return {
+                topicId: titleLink.getAttribute('data-topic-id'),
+                topicHref: titleLink.href
+            };
+        }
+
+        handleDocumentClick(event) {
+            const previewButton = event.target.closest('.linuxdo-topic-preview-trigger');
+            if (previewButton) {
+                if (!this.isModifiedPrimaryClick(event)) {
+                    return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation?.();
+                const topicHref = previewButton.dataset.topicHref;
+                if (topicHref) {
+                    window.open(topicHref, '_blank', 'noopener');
+                }
+                return;
+            }
+
+            const modalRoot = this.getModalRoot();
+            if (!modalRoot || !modalRoot.classList.contains('visible')) {
+                if (!this.isModifiedPrimaryClick(event)) {
+                    return;
+                }
+
+                const row = event.target.closest('.topic-list-body tr.topic-list-item');
+                if (!row) {
+                    return;
+                }
+
+                const topicInfo = this.getTopicInfoFromRow(row);
+                if (!topicInfo?.topicId) {
+                    return;
+                }
+
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation?.();
+                this.openPreview(topicInfo.topicId);
+                return;
+            }
+
+            const closeButton = event.target.closest('[data-role="close"]');
+            const mask = event.target.closest('[data-role="mask"]');
+            if (closeButton || mask) {
+                event.preventDefault();
+                this.closePreview();
+            }
+        }
+
+        handleKeyDown(event) {
+            if (event.key === 'Escape') {
+                this.closePreview();
+            }
+        }
+
+        openLoadingState() {
+            const root = this.ensureModal();
+            const title = root.querySelector('.linuxdo-topic-preview-title');
+            const meta = root.querySelector('.linuxdo-topic-preview-meta');
+            const body = root.querySelector('.linuxdo-topic-preview-body');
+            const moreLink = root.querySelector('.linuxdo-topic-preview-more');
+            const hint = root.querySelector('.linuxdo-topic-preview-hint');
+
+            title.textContent = '正在加载中...';
+            meta.textContent = '';
+            body.innerHTML = '<div class="linuxdo-topic-preview-loading">正在加载中...</div>';
+            moreLink.href = '/';
+            hint.textContent = `先显示前 ${TOPIC_PREVIEW_CONFIG.initialPosts} 楼，下拉接近底部时自动加载更多`;
+            root.classList.add('visible');
+            document.documentElement.classList.add('linuxdo-topic-preview-open');
+            document.body.classList.add('linuxdo-topic-preview-open');
+        }
+
+        closePreview() {
+            const root = this.getModalRoot();
+            this.activePreviewRequestId += 1;
+            this.previewState = null;
+            if (!root) {
+                return;
+            }
+            root.classList.remove('visible');
+            document.documentElement.classList.remove('linuxdo-topic-preview-open');
+            document.body.classList.remove('linuxdo-topic-preview-open');
+        }
+
+        formatDate(dateString) {
+            const date = new Date(dateString);
+            if (Number.isNaN(date.getTime())) {
+                return '';
+            }
+            return date.toLocaleString('zh-CN', { hour12: false });
+        }
+
+        escapeHtml(text) {
+            return String(text ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        getTopicUrl(topicData, topicId) {
+            const slug = topicData?.slug || 'topic';
+            return `${location.origin}/t/${slug}/${topicId}`;
+        }
+
+        buildPostHtml(post) {
+            const displayName = this.escapeHtml(
+                post.display_username || post.name || post.username || '匿名用户'
+            );
+            const username = post.username ? `@${this.escapeHtml(post.username)}` : '';
+            const createdAt = this.escapeHtml(this.formatDate(post.created_at));
+            const floorNumber = Number(post.post_number) || 0;
+            return `
+                <article class="linuxdo-topic-preview-item">
+                    <div class="linuxdo-topic-preview-floor">${floorNumber} 楼</div>
+                    <div class="linuxdo-topic-preview-post">
+                        <div class="linuxdo-topic-preview-author">
+                            <strong>${displayName}</strong>
+                            <span class="linuxdo-topic-preview-username">${username}</span>
+                            <span class="linuxdo-topic-preview-date">${createdAt}</span>
+                        </div>
+                        <div class="linuxdo-topic-preview-cooked">${post.cooked || ''}</div>
+                    </div>
+                </article>
+            `;
+        }
+
+        updatePreviewProgress(loadedCount, totalTarget, totalPostCount, isLoadingMore = false) {
+            const root = this.ensureModal();
+            const hint = root.querySelector('.linuxdo-topic-preview-hint');
+            if (!hint) {
+                return;
+            }
+            if (loadedCount >= totalTarget) {
+                hint.textContent = `已加载 ${loadedCount}/${totalPostCount}（已全部加载完毕）`;
+                return;
+            }
+            if (isLoadingMore) {
+                hint.textContent = `已加载 ${loadedCount}/${totalPostCount}（正在加载更多）`;
+                return;
+            }
+            hint.textContent = `已加载 ${loadedCount}/${totalPostCount}`;
+        }
+
+        appendPreviewPosts(posts) {
+            if (!posts.length) {
+                return;
+            }
+            const root = this.ensureModal();
+            const body = root.querySelector('.linuxdo-topic-preview-body');
+            body.insertAdjacentHTML('beforeend', posts.map((post) => this.buildPostHtml(post)).join(''));
+        }
+
+        resetPreviewState(topicId, totalTarget, totalPostCount, streamIds, loadedCount) {
+            this.previewState = {
+                topicId,
+                totalTarget,
+                totalPostCount,
+                streamIds,
+                loadedCount,
+                nextOffset: loadedCount,
+                isLoadingMore: false
+            };
+        }
+
+        getRemainingLoadedItems() {
+            const body = this.getPreviewBody();
+            if (!body) {
+                return Number.POSITIVE_INFINITY;
+            }
+
+            const items = Array.from(body.querySelectorAll('.linuxdo-topic-preview-item'));
+            if (!items.length) {
+                return 0;
+            }
+
+            let lastVisibleIndex = -1;
+            const viewportBottom = body.scrollTop + body.clientHeight;
+            items.forEach((item, index) => {
+                if (item.offsetTop < viewportBottom) {
+                    lastVisibleIndex = index;
+                }
+            });
+
+            if (lastVisibleIndex < 0) {
+                return items.length;
+            }
+            return items.length - (lastVisibleIndex + 1);
+        }
+
+        shouldLoadMoreOnScroll() {
+            const state = this.previewState;
+            const root = this.getModalRoot();
+            if (!state || !root || !root.classList.contains('visible')) {
+                return false;
+            }
+            if (state.isLoadingMore || state.loadedCount >= state.totalTarget) {
+                return false;
+            }
+            return this.getRemainingLoadedItems() <= TOPIC_PREVIEW_CONFIG.preloadRemainingThreshold;
+        }
+
+        handlePreviewBodyScroll() {
+            this.maybeLoadMorePreviewPosts();
+        }
+
+        async maybeLoadMorePreviewPosts() {
+            const state = this.previewState;
+            if (!this.shouldLoadMoreOnScroll() || !state) {
+                return;
+            }
+
+            const requestId = this.activePreviewRequestId;
+            const batchIds = state.streamIds.slice(
+                state.nextOffset,
+                state.nextOffset + TOPIC_PREVIEW_CONFIG.backgroundBatchSize
+            );
+            if (!batchIds.length) {
+                return;
+            }
+
+            state.isLoadingMore = true;
+            this.updatePreviewProgress(
+                state.loadedCount,
+                state.totalTarget,
+                state.totalPostCount,
+                true
+            );
+
+            try {
+                const posts = await this.fetchPostBatch(state.topicId, batchIds);
+                if (requestId !== this.activePreviewRequestId || !this.previewState) {
+                    return;
+                }
+                this.appendPreviewPosts(posts);
+                state.loadedCount += posts.length;
+                state.nextOffset += batchIds.length;
+            } catch (error) {
+                console.error('话题预览追加加载失败:', error);
+            } finally {
+                if (requestId !== this.activePreviewRequestId || !this.previewState) {
+                    return;
+                }
+                state.isLoadingMore = false;
+                this.updatePreviewProgress(
+                    state.loadedCount,
+                    state.totalTarget,
+                    state.totalPostCount,
+                    false
+                );
+                if (this.shouldLoadMoreOnScroll()) {
+                    this.maybeLoadMorePreviewPosts();
+                }
+            }
+        }
+
+        renderPreview(topicData, topicId) {
+            const root = this.ensureModal();
+            const title = root.querySelector('.linuxdo-topic-preview-title');
+            const meta = root.querySelector('.linuxdo-topic-preview-meta');
+            const body = root.querySelector('.linuxdo-topic-preview-body');
+            const moreLink = root.querySelector('.linuxdo-topic-preview-more');
+            const previewBody = this.getPreviewBody();
+            const streamIds = topicData?.post_stream?.stream || [];
+            const totalPostCount = Math.max(
+                Number(topicData?.highest_post_number) || 0,
+                streamIds.length
+            );
+            const totalTarget = totalPostCount;
+            const posts = (topicData?.post_stream?.posts || []).slice(0, TOPIC_PREVIEW_CONFIG.initialPosts);
+
+            title.textContent = topicData?.title || '未命名话题';
+            meta.textContent = `发帖时间：${this.formatDate(topicData?.created_at)}  ·  完整话题共 ${totalPostCount} 楼`;
+            moreLink.href = this.getTopicUrl(topicData, topicId);
+
+            if (!posts.length) {
+                body.innerHTML = '<div class="linuxdo-topic-preview-error">没有可预览的帖子内容。</div>';
+                return;
+            }
+
+            body.innerHTML = posts.map((post) => this.buildPostHtml(post)).join('');
+            if (previewBody) {
+                previewBody.scrollTop = 0;
+            }
+            this.resetPreviewState(topicId, totalTarget, totalPostCount, streamIds, posts.length);
+            this.updatePreviewProgress(posts.length, totalTarget, totalPostCount, false);
+            this.maybeLoadMorePreviewPosts();
+        }
+
+        renderError(message) {
+            const root = this.ensureModal();
+            const title = root.querySelector('.linuxdo-topic-preview-title');
+            const meta = root.querySelector('.linuxdo-topic-preview-meta');
+            const body = root.querySelector('.linuxdo-topic-preview-body');
+            const hint = root.querySelector('.linuxdo-topic-preview-hint');
+
+            title.textContent = '加载失败';
+            meta.textContent = '';
+            hint.textContent = '预览加载失败';
+            body.innerHTML = `<div class="linuxdo-topic-preview-error">${message}</div>`;
+        }
+
+        async fetchPostBatch(topicId, postIds) {
+            if (!postIds.length) {
+                return [];
+            }
+            const query = postIds
+                .map((id) => `post_ids[]=${encodeURIComponent(id)}`)
+                .join('&');
+            const response = await fetch(`${location.origin}/t/${topicId}/posts.json?${query}`, {
+                credentials: 'same-origin'
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const data = await response.json();
+            return data?.post_stream?.posts || [];
+        }
+
+        async preloadInitialPosts(topicId, streamIds, existingPosts) {
+            const seededPosts = [...existingPosts];
+            if (seededPosts.length >= TOPIC_PREVIEW_CONFIG.initialPosts) {
+                return seededPosts;
+            }
+
+            const targetCount = Math.min(TOPIC_PREVIEW_CONFIG.initialPosts, streamIds.length);
+            let nextOffset = seededPosts.length;
+
+            while (seededPosts.length < targetCount) {
+                const batchIds = streamIds.slice(
+                    nextOffset,
+                    Math.min(targetCount, nextOffset + TOPIC_PREVIEW_CONFIG.backgroundBatchSize)
+                );
+                if (!batchIds.length) {
+                    break;
+                }
+                const posts = await this.fetchPostBatch(topicId, batchIds);
+                seededPosts.push(...posts);
+                nextOffset += batchIds.length;
+            }
+
+            return seededPosts.slice(0, targetCount);
+        }
+
+        async openPreview(topicId) {
+            if (!topicId) {
+                return;
+            }
+
+            const requestId = this.activePreviewRequestId + 1;
+            this.activePreviewRequestId = requestId;
+            this.openLoadingState();
+            try {
+                const response = await fetch(`${location.origin}/t/${topicId}.json`, {
+                    credentials: 'same-origin'
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const topicData = await response.json();
+                if (requestId !== this.activePreviewRequestId) {
+                    return;
+                }
+                const streamIds = topicData?.post_stream?.stream || [];
+                topicData.post_stream.posts = await this.preloadInitialPosts(
+                    topicId,
+                    streamIds,
+                    topicData?.post_stream?.posts || []
+                );
+                if (requestId !== this.activePreviewRequestId) {
+                    return;
+                }
+                this.renderPreview(topicData, topicId);
+            } catch (error) {
+                if (requestId !== this.activePreviewRequestId) {
+                    return;
+                }
+                console.error('话题预览加载失败:', error);
+                this.renderError('话题预览加载失败，请稍后再试。');
+            }
+        }
+    }
+
     // ==================== Horizon 配色注入 ====================
 
     /**
@@ -2803,6 +3589,9 @@
     /** 主页筛选工具实例 */
     let homeSieveModule = null;
 
+    /** 话题预览模块实例 */
+    let topicPreviewModule = null;
+
     /** Horizon 配色模块实例 */
     let horizonPaletteModule = null;
 
@@ -2840,6 +3629,15 @@
         }
         horizonPaletteModule = new HorizonPaletteModule();
         horizonPaletteModule.init();
+    }
+
+    /** 初始化话题预览模块（只初始化一次） */
+    function initTopicPreviewTool() {
+        if (topicPreviewModule) {
+            return;
+        }
+        topicPreviewModule = new TopicPreviewModule();
+        topicPreviewModule.init();
     }
 
     /**
@@ -2980,6 +3778,7 @@
         await createSieveSwitchIcon(autoSwitchButton);
         updateRunningHaloVisibility();
         initHorizonPaletteTool();
+        initTopicPreviewTool();
 
         // 初始化主页筛选工具（由筛选开关控制）
         applySieveToolState();
