@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.03.24.0051
+// @version      2026.03.24.1211
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 配色注入）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -117,7 +117,6 @@
         roamTodayStat: 'linuxdoRoamTodayStat',
         sieveLevels: 'linuxdoSieveLevels',
         sieveCats: 'linuxdoSieveCats',
-        sieveTags: 'linuxdoSieveTags',
         sievePresets: 'linuxdoSievePresets',
         sidebarTopicsToNew: 'linuxdoSidebarTopicsToNew',
         horizonPalette: 'linuxdoHorizonPalette'
@@ -220,21 +219,7 @@
             { id: '102', name: '社区孵化' },
             { id: '2', name: '运营反馈' },
             { id: '45', name: '深海幽域' }
-        ],
-        tags: [
-            '无标签', '纯水', '快问快答', '人工智能', '软件开发',
-            '夸克网盘', '病友', 'ChatGPT', '树洞', 'AFF',
-            'OpenAI', '影视', '百度网盘', 'VPS', '职场',
-            '网络安全', '订阅节点', '抽奖', 'Cursor', '游戏',
-            '动漫', '作品集', '晒年味', 'Gemini', 'PT',
-            '拼车', '求资源', '配置优化', 'Claude', 'NSFW',
-            '圆圆满满'
-        ],
-        state: {
-            neutral: 0,
-            include: 1,
-            exclude: 2
-        }
+        ]
     };
 
     /** 主页筛选工具UI常量 */
@@ -1821,7 +1806,7 @@
 
     /**
      * 主页帖子筛选模块
-     * 支持等级/分类/标签筛选，以及筛选预设的保存与加载。
+     * 支持等级/分类筛选，以及筛选预设的保存与加载。
      */
     class HomeSieveModule {
         constructor() {
@@ -1848,7 +1833,6 @@
                 STORAGE_KEYS.sieveCats,
                 SIEVE_CONFIG.categories.map((item) => item.id)
             );
-            this.tagStates = this.readStored(STORAGE_KEYS.sieveTags, {});
             this.sidebarTopicsToNew = getSidebarTopicsToNewState();
             this.presets = this.readStored(STORAGE_KEYS.sievePresets, {});
         }
@@ -1879,8 +1863,7 @@
         hasActiveFilter() {
             const allLevel = this.activeLevels.length === SIEVE_CONFIG.levels.length;
             const allCategory = this.activeCats.length === SIEVE_CONFIG.categories.length;
-            const hasTagFilter = Object.keys(this.tagStates).length > 0;
-            return !(allLevel && allCategory && !hasTagFilter);
+            return !(allLevel && allCategory);
         }
 
         init() {
@@ -2110,20 +2093,6 @@
                 return `<span class="linuxdo-sieve-btn${active ? ' active' : ''}" data-type="cat" data-key="${item.id}">${active ? checkIcon : ''}${item.name}</span>`;
             }).join('');
 
-            const tagButtons = SIEVE_CONFIG.tags.map((tag) => {
-                const state = this.tagStates[tag] || SIEVE_CONFIG.state.neutral;
-                let className = 'linuxdo-sieve-btn';
-                let icon = '';
-                if (state === SIEVE_CONFIG.state.include) {
-                    className += ' active';
-                    icon = checkIcon;
-                } else if (state === SIEVE_CONFIG.state.exclude) {
-                    className += ' exclude';
-                    icon = banIcon;
-                }
-                return `<span class="${className}" data-type="tag" data-key="${tag}">${icon}${tag}</span>`;
-            }).join('');
-
             return `
                 <div class="linuxdo-sieve-status"></div>
                 <div class="linuxdo-sieve-row">
@@ -2139,11 +2108,6 @@
                     <span class="linuxdo-sieve-title">分类</span>
                     <span class="linuxdo-sieve-action" data-action="toggle-cat">全选</span>
                     ${categoryButtons}
-                </div>
-                <div class="linuxdo-sieve-row">
-                    <span class="linuxdo-sieve-title">标签</span>
-                    <span class="linuxdo-sieve-action" data-action="reset-tag">重置</span>
-                    ${tagButtons}
                 </div>
                 <div class="linuxdo-sieve-row">
                     <span class="linuxdo-sieve-title">预设</span>
@@ -2260,9 +2224,6 @@
                     this.activeCats = SIEVE_CONFIG.categories.map((item) => item.id);
                 }
                 GM_setValue(STORAGE_KEYS.sieveCats, this.activeCats);
-            } else if (action === 'reset-tag') {
-                this.tagStates = {};
-                GM_setValue(STORAGE_KEYS.sieveTags, this.tagStates);
             }
 
             this.resetRefillState({ resetCooldown: true });
@@ -2307,25 +2268,6 @@
                     button.innerHTML = `${checkIcon}${label}`;
                 }
                 GM_setValue(STORAGE_KEYS.sieveCats, this.activeCats);
-            } else if (buttonType === 'tag') {
-                let state = this.tagStates[key] || SIEVE_CONFIG.state.neutral;
-                state = (state + 1) % 3;
-                if (state === SIEVE_CONFIG.state.neutral) {
-                    delete this.tagStates[key];
-                    button.classList.remove('active', 'exclude');
-                    button.innerHTML = key;
-                } else if (state === SIEVE_CONFIG.state.include) {
-                    this.tagStates[key] = state;
-                    button.classList.add('active');
-                    button.classList.remove('exclude');
-                    button.innerHTML = `${checkIcon}${key}`;
-                } else {
-                    this.tagStates[key] = state;
-                    button.classList.remove('active');
-                    button.classList.add('exclude');
-                    button.innerHTML = `${banIcon}${key}`;
-                }
-                GM_setValue(STORAGE_KEYS.sieveTags, this.tagStates);
             }
 
             this.updateButtonStates();
@@ -2363,28 +2305,12 @@
                 button.innerHTML = `${active ? checkIcon : ''}${label}`;
             });
 
-            this.panel.querySelectorAll('[data-type="tag"]').forEach((button) => {
-                const key = button.dataset.key;
-                const state = this.tagStates[key] || SIEVE_CONFIG.state.neutral;
-                let className = 'linuxdo-sieve-btn';
-                let icon = '';
-                if (state === SIEVE_CONFIG.state.include) {
-                    className += ' active';
-                    icon = checkIcon;
-                } else if (state === SIEVE_CONFIG.state.exclude) {
-                    className += ' exclude';
-                    icon = banIcon;
-                }
-                button.className = className;
-                button.innerHTML = `${icon}${key}`;
-            });
         }
 
         savePreset(name) {
             this.presets[name] = {
                 levels: [...this.activeLevels],
-                cats: [...this.activeCats],
-                tags: { ...this.tagStates }
+                cats: [...this.activeCats]
             };
             GM_setValue(STORAGE_KEYS.sievePresets, this.presets);
             this.refreshPresetChips();
@@ -2397,11 +2323,9 @@
             }
             this.activeLevels = [...(preset.levels || [])];
             this.activeCats = [...(preset.cats || [])];
-            this.tagStates = { ...(preset.tags || {}) };
 
             GM_setValue(STORAGE_KEYS.sieveLevels, this.activeLevels);
             GM_setValue(STORAGE_KEYS.sieveCats, this.activeCats);
-            GM_setValue(STORAGE_KEYS.sieveTags, this.tagStates);
 
             this.resetRefillState({ resetCooldown: true });
             this.filterDirty = true;
@@ -2603,24 +2527,12 @@
                 };
             }
 
-            const includeTags = [];
-            const excludeTags = [];
-            SIEVE_CONFIG.tags.forEach((tag) => {
-                const state = this.tagStates[tag] || SIEVE_CONFIG.state.neutral;
-                if (state === SIEVE_CONFIG.state.include) {
-                    includeTags.push(tag);
-                } else if (state === SIEVE_CONFIG.state.exclude) {
-                    excludeTags.push(tag);
-                }
-            });
-
             const allLevel = this.activeLevels.length === SIEVE_CONFIG.levels.length;
             const allCategory = this.activeCats.length === SIEVE_CONFIG.categories.length;
             let visibleCount = 0;
 
             rows.forEach((row) => {
                 const classText = row.className || '';
-                const classList = Array.from(row.classList || []);
 
                 let levelMatch = allLevel;
                 if (!levelMatch) {
@@ -2641,37 +2553,7 @@
                     }
                 }
 
-                let tagMatch = true;
-                if (levelMatch && categoryMatch) {
-                    const rowTags = classList
-                        .filter((token) => token.startsWith('tag-'))
-                        .map((token) => {
-                            try {
-                                return decodeURIComponent(token.slice(4));
-                            } catch (_error) {
-                                return token.slice(4);
-                            }
-                        });
-                    const noTag = rowTags.length === 0;
-
-                    if (excludeTags.length > 0) {
-                        if (noTag && excludeTags.includes('无标签')) {
-                            tagMatch = false;
-                        } else if (rowTags.some((tag) => excludeTags.includes(tag))) {
-                            tagMatch = false;
-                        }
-                    }
-
-                    if (tagMatch && includeTags.length > 0) {
-                        if (noTag) {
-                            tagMatch = includeTags.includes('无标签');
-                        } else {
-                            tagMatch = rowTags.some((tag) => includeTags.includes(tag));
-                        }
-                    }
-                }
-
-                const visible = levelMatch && categoryMatch && tagMatch;
+                const visible = levelMatch && categoryMatch;
                 row.style.display = visible ? '' : 'none';
                 if (visible) {
                     visibleCount += 1;
