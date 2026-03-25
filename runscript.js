@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.03.24.1211
+// @version      2026.03.25.1217
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 配色注入）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -113,6 +113,7 @@
         enabled: 'linuxdoHelperEnabled', // 旧版全局开关（仅用于迁移清理）
         baseConfig: 'linuxdoHelperBaseConfig',
         visitedLinks: 'visitedLinks',
+        participatedLotteryTopicIds: 'linuxdoParticipatedLotteryTopicIds',
         roamHistoryMs: 'linuxdoRoamHistoryMs',
         roamTodayStat: 'linuxdoRoamTodayStat',
         sieveLevels: 'linuxdoSieveLevels',
@@ -164,6 +165,23 @@
         preloadRemainingThreshold: 10,
         backgroundBatchSize: 20,
         loopIntervalMs: 900
+    };
+
+    /** 话题预览快捷抽奖回复文案 */
+    const LOTTERY_QUICK_REPLY_TEXTS = Object.freeze([
+        '前排积极参与',
+        '佬友太秀了',
+        '支持佬友',
+        '立即來抽',
+        '马上上车',
+        '轮到我中奖'
+    ]);
+
+    /** 福利羊毛分类识别 */
+    const WELFARE_CATEGORY_CONFIG = {
+        slug: 'welfare',
+        id: '36',
+        name: '福利羊毛'
     };
 
     /** Discourse 帖子动作类型 */
@@ -300,6 +318,48 @@
         }
         visitedSet.add(normalizedHref);
         persistVisitedLinkSet(visitedSet);
+    }
+
+    function getParticipatedLotteryTopicIdSet() {
+        const topicIds = GM_getValue(STORAGE_KEYS.participatedLotteryTopicIds, []);
+        return new Set(
+            (Array.isArray(topicIds) ? topicIds : [])
+                .map((topicId) => Number(topicId) || 0)
+                .filter(Boolean)
+        );
+    }
+
+    function persistParticipatedLotteryTopicIdSet(topicIdSet) {
+        GM_setValue(
+            STORAGE_KEYS.participatedLotteryTopicIds,
+            Array.from(topicIdSet)
+                .map((topicId) => Number(topicId) || 0)
+                .filter(Boolean)
+        );
+    }
+
+    function hasParticipatedLotteryTopic(topicId) {
+        const normalizedTopicId = Number(topicId) || 0;
+        if (!normalizedTopicId) {
+            return false;
+        }
+        return getParticipatedLotteryTopicIdSet().has(normalizedTopicId);
+    }
+
+    function markParticipatedLotteryTopic(topicId) {
+        const normalizedTopicId = Number(topicId) || 0;
+        if (!normalizedTopicId) {
+            return false;
+        }
+
+        const topicIdSet = getParticipatedLotteryTopicIdSet();
+        if (topicIdSet.has(normalizedTopicId)) {
+            return false;
+        }
+
+        topicIdSet.add(normalizedTopicId);
+        persistParticipatedLotteryTopicIdSet(topicIdSet);
+        return true;
     }
 
     /**
@@ -2715,14 +2775,16 @@
             const style = document.createElement('style');
             style.id = UI_IDS.topicPreviewStyle;
             style.textContent = `
-                .linuxdo-topic-preview-trigger {
+                .linuxdo-topic-preview-trigger,
+                .linuxdo-topic-lottery-trigger {
                     height: 28px;
-                    min-width: 58px;
+                    min-width: 66px;
                     padding: 0 10px;
                     margin-left: 6px;
                     border-radius: 7px;
-                    border: 1px solid rgba(124, 139, 153, 0.20);
-                    background: rgba(124, 139, 153, 0.08);
+                    border: 1px solid rgba(124, 139, 153, 0.42);
+                    background: rgba(229, 235, 241, 0.98);
+                    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.6);
                     color: var(--primary-medium, #667789);
                     display: inline-flex;
                     align-items: center;
@@ -2736,12 +2798,27 @@
                     white-space: nowrap;
                     transition: border-color 160ms ease, color 160ms ease, background 160ms ease;
                 }
-                .linuxdo-topic-preview-trigger:hover {
+                .linuxdo-topic-preview-trigger:hover,
+                .linuxdo-topic-lottery-trigger:hover {
                     color: var(--primary, #2f3338);
-                    border-color: rgba(124, 139, 153, 0.36);
-                    background: rgba(124, 139, 153, 0.14);
+                    border-color: rgba(124, 139, 153, 0.48);
+                    background: rgba(255, 255, 255, 0.96);
                 }
-                .linuxdo-topic-preview-trigger svg {
+                .linuxdo-topic-lottery-trigger.is-participated,
+                .linuxdo-topic-lottery-trigger.is-participated:hover,
+                .linuxdo-topic-lottery-trigger.is-participated:disabled {
+                    color: #8a6548;
+                    border-color: rgba(166, 120, 82, 0.26);
+                    background: rgba(166, 120, 82, 0.12);
+                    opacity: 1;
+                }
+                .linuxdo-topic-preview-trigger:disabled,
+                .linuxdo-topic-lottery-trigger:disabled {
+                    cursor: wait;
+                    opacity: 0.72;
+                }
+                .linuxdo-topic-preview-trigger svg,
+                .linuxdo-topic-lottery-trigger svg {
                     width: 14px;
                     height: 14px;
                     stroke: currentColor;
@@ -2824,11 +2901,39 @@
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-footer-actions {
                     display: flex;
                     align-items: center;
+                    flex-wrap: wrap;
+                    justify-content: flex-end;
                     gap: 12px;
                 }
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-more {
-                    color: var(--link-color, #667789);
+                    min-width: 132px;
+                    height: 32px;
+                    padding: 0 12px;
+                    border-radius: 999px;
+                    border: 1px solid rgba(124, 139, 153, 0.18);
+                    background: rgba(255, 255, 255, 0.92);
+                    color: var(--primary-medium, #667789);
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 6px;
+                    font-size: 13px;
                     font-weight: 600;
+                    text-decoration: none;
+                    transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-more:hover {
+                    color: var(--primary, #2f3338);
+                    border-color: rgba(124, 139, 153, 0.34);
+                    background: rgba(124, 139, 153, 0.08);
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-more svg {
+                    width: 14px;
+                    height: 14px;
+                    stroke: currentColor;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-quick-submit.is-hidden {
+                    display: none;
                 }
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-close {
                     position: absolute;
@@ -2996,7 +3101,8 @@
                 }
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-like,
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-toggle,
-                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-submit {
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-submit,
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-quick-submit {
                     min-width: 84px;
                     height: 32px;
                     padding: 0 12px;
@@ -3014,7 +3120,8 @@
                 }
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-like:hover,
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-toggle:hover,
-                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-submit:hover {
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-submit:hover,
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-quick-submit:hover {
                     color: var(--primary, #2f3338);
                     border-color: rgba(124, 139, 153, 0.34);
                     background: rgba(124, 139, 153, 0.08);
@@ -3042,6 +3149,19 @@
                     color: #7c5a3f;
                     border-color: rgba(166, 120, 82, 0.24);
                     background: rgba(166, 120, 82, 0.14);
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-quick-submit.is-participated,
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-quick-submit.is-participated:hover,
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-quick-submit.is-participated:disabled {
+                    color: #8a6548;
+                    border-color: rgba(166, 120, 82, 0.26);
+                    background: rgba(166, 120, 82, 0.12);
+                    opacity: 1;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-submit:disabled,
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-reply-quick-submit:disabled {
+                    cursor: wait;
+                    opacity: 0.68;
                 }
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-actions .linuxdo-topic-preview-reply-submit {
                     display: none;
@@ -3088,12 +3208,16 @@
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-footer.is-replying .linuxdo-topic-preview-footer-reply {
                     display: grid;
                 }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-footer.is-replying .linuxdo-topic-preview-reply-quick-submit {
+                    display: none;
+                }
                 html.linuxdo-topic-preview-open,
                 body.linuxdo-topic-preview-open {
                     overflow: hidden !important;
                 }
                 @media (max-width: 768px) {
-                    .linuxdo-topic-preview-trigger {
+                    .linuxdo-topic-preview-trigger,
+                    .linuxdo-topic-lottery-trigger {
                         min-width: 54px;
                         padding: 0 9px;
                     }
@@ -3183,7 +3307,23 @@
                                 >
                                     <span class="linuxdo-topic-preview-reply-toggle-label">回复话题</span>
                                 </button>
-                                <a class="linuxdo-topic-preview-more" href="/" target="_blank" rel="noopener noreferrer">查看完整话题</a>
+                                <button
+                                    class="linuxdo-topic-preview-reply-quick-submit"
+                                    type="button"
+                                    data-role="preview-reply-quick-submit"
+                                    data-reply-scope="topic"
+                                    title="${this.getReplyQuickSubmitButtonText()}"
+                                >
+                                    ${this.getReplyQuickSubmitButtonText()}
+                                </button>
+                                <a class="linuxdo-topic-preview-more" href="/" target="_blank" rel="noopener noreferrer">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M14 5h5v5"></path>
+                                        <path d="M10 14 19 5"></path>
+                                        <path d="M19 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4"></path>
+                                    </svg>
+                                    <span>新标签查看话题</span>
+                                </a>
                             </div>
                         </div>
                         <div class="linuxdo-topic-preview-footer-reply">
@@ -3282,6 +3422,117 @@
             return `发布（${this.getReplySubmitShortcutLabel()}）`;
         }
 
+        getReplyQuickSubmitButtonText() {
+            return '参与抽奖';
+        }
+
+        getReplyQuickSubmittedButtonText() {
+            return '已参与';
+        }
+
+        getRandomLotteryQuickReplyText() {
+            if (!LOTTERY_QUICK_REPLY_TEXTS.length) {
+                return '';
+            }
+            const index = Math.floor(Math.random() * LOTTERY_QUICK_REPLY_TEXTS.length);
+            return LOTTERY_QUICK_REPLY_TEXTS[index] || LOTTERY_QUICK_REPLY_TEXTS[0];
+        }
+
+        setLotteryButtonParticipationState(button, participated = false) {
+            if (!button) {
+                return;
+            }
+
+            const defaultText = this.getReplyQuickSubmitButtonText();
+            const submittedText = this.getReplyQuickSubmittedButtonText();
+            const label = participated ? submittedText : defaultText;
+            const labelNode = button.querySelector('.linuxdo-topic-lottery-trigger-label');
+            button.disabled = participated;
+            button.dataset.participated = participated ? '1' : '0';
+            button.classList.toggle('is-participated', participated);
+            if (labelNode) {
+                labelNode.textContent = label;
+            } else {
+                button.textContent = label;
+            }
+            button.title = label;
+            button.setAttribute('aria-label', label);
+        }
+
+        syncTopicListLotteryButtons(topicId = 0) {
+            const normalizedTopicId = Number(topicId) || 0;
+            const buttons = normalizedTopicId
+                ? document.querySelectorAll(`.linuxdo-topic-lottery-trigger[data-topic-id="${normalizedTopicId}"]`)
+                : document.querySelectorAll('.linuxdo-topic-lottery-trigger[data-topic-id]');
+
+            buttons.forEach((button) => {
+                const currentTopicId = Number(button.dataset.topicId) || 0;
+                this.setLotteryButtonParticipationState(
+                    button,
+                    hasParticipatedLotteryTopic(currentTopicId)
+                );
+            });
+        }
+
+        syncPreviewLotteryButton(topicId = 0) {
+            const button = this.getModalRoot()?.querySelector('[data-role="preview-reply-quick-submit"]');
+            if (!button) {
+                return;
+            }
+
+            const normalizedTopicId = Number(topicId || this.previewState?.topicId) || 0;
+            const isWelfareTopic = Number(this.previewState?.categoryId) === Number(WELFARE_CATEGORY_CONFIG.id);
+            button.dataset.topicId = normalizedTopicId ? String(normalizedTopicId) : '';
+            button.classList.toggle('is-hidden', !isWelfareTopic);
+            this.setLotteryButtonParticipationState(
+                button,
+                isWelfareTopic && normalizedTopicId ? hasParticipatedLotteryTopic(normalizedTopicId) : false
+            );
+        }
+
+        async submitTopicListLotteryReply(button) {
+            if (!button || button.disabled) {
+                return;
+            }
+
+            const topicId = Number(button.dataset.topicId) || 0;
+            const topicHref = button.dataset.topicHref || '';
+            const csrfToken = this.getCsrfToken();
+            const defaultText = '参与抽奖';
+            const raw = this.getRandomLotteryQuickReplyText();
+
+            if (!csrfToken) {
+                this.flashButtonText(button, '请先登录', defaultText);
+                return;
+            }
+
+            if (!topicId || !raw) {
+                this.flashButtonText(button, '无效话题', defaultText);
+                return;
+            }
+
+            button.disabled = true;
+            button.textContent = '参与中';
+
+            try {
+                await this.createPreviewReply(topicId, raw, csrfToken, 0);
+                markParticipatedLotteryTopic(topicId);
+                if (topicHref) {
+                    markVisitedLink(topicHref);
+                    this.applyVisitedTopicState();
+                }
+                this.syncTopicListLotteryButtons(topicId);
+                this.syncPreviewLotteryButton(topicId);
+            } catch (error) {
+                console.error('列表参与抽奖失败:', error);
+                this.flashButtonText(button, '稍后重试', defaultText);
+            } finally {
+                if (!hasParticipatedLotteryTopic(topicId)) {
+                    button.disabled = false;
+                }
+            }
+        }
+
         isReplySubmitShortcut(event) {
             if (event.key !== 'Enter' || event.altKey || event.shiftKey) {
                 return false;
@@ -3296,28 +3547,68 @@
             const links = document.querySelectorAll('.topic-list .main-link a.title[data-topic-id]');
             links.forEach((link) => {
                 const line = link.closest('.link-top-line');
+                const row = link.closest('.topic-list-item');
                 const topicId = link.getAttribute('data-topic-id');
-                if (!line || !topicId || line.querySelector('.linuxdo-topic-preview-trigger')) {
+                if (!line || !topicId) {
                     return;
                 }
 
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.className = 'btn btn-flat linuxdo-topic-preview-trigger';
-                button.dataset.topicId = topicId;
-                button.dataset.topicHref = link.href;
-                button.setAttribute('aria-label', '新标签页打开话题');
-                button.title = '新标签页打开';
-                button.innerHTML = `
+                if (!line.querySelector('.linuxdo-topic-preview-trigger')) {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'btn btn-flat linuxdo-topic-preview-trigger';
+                    button.dataset.topicId = topicId;
+                    button.dataset.topicHref = link.href;
+                    button.setAttribute('aria-label', '新标签页打开话题');
+                    button.title = '新标签页打开';
+                    button.innerHTML = `
+                        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M14 5h5v5"></path>
+                            <path d="M10 14 19 5"></path>
+                            <path d="M19 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4"></path>
+                        </svg>
+                        <span>新标签</span>
+                    `;
+                    line.appendChild(button);
+                }
+
+                if (!this.isWelfareTopicRow(row) || line.querySelector('.linuxdo-topic-lottery-trigger')) {
+                    return;
+                }
+
+                const lotteryButton = document.createElement('button');
+                lotteryButton.type = 'button';
+                lotteryButton.className = 'btn btn-flat linuxdo-topic-lottery-trigger';
+                lotteryButton.dataset.topicId = topicId;
+                lotteryButton.dataset.topicHref = link.href;
+                lotteryButton.setAttribute('aria-label', '参与抽奖');
+                lotteryButton.title = '参与抽奖';
+                lotteryButton.innerHTML = `
                     <svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M14 5h5v5"></path>
-                        <path d="M10 14 19 5"></path>
-                        <path d="M19 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4"></path>
+                        <path d="M20 12v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-9"></path>
+                        <path d="M2 7h20v5H2z"></path>
+                        <path d="M12 22V7"></path>
+                        <path d="M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7z"></path>
+                        <path d="M12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z"></path>
                     </svg>
-                    <span>新开</span>
+                    <span class="linuxdo-topic-lottery-trigger-label">参与抽奖</span>
                 `;
-                line.appendChild(button);
+                line.appendChild(lotteryButton);
+                this.setLotteryButtonParticipationState(
+                    lotteryButton,
+                    hasParticipatedLotteryTopic(topicId)
+                );
             });
+
+            document
+                .querySelectorAll('.linuxdo-topic-lottery-trigger[data-topic-id]')
+                .forEach((button) => {
+                    const topicId = Number(button.dataset.topicId) || 0;
+                    this.setLotteryButtonParticipationState(
+                        button,
+                        hasParticipatedLotteryTopic(topicId)
+                    );
+                });
         }
 
         applyVisitedTopicState() {
@@ -3352,6 +3643,26 @@
             };
         }
 
+        isWelfareTopicRow(row) {
+            if (!row) {
+                return false;
+            }
+
+            if (row.classList.contains(`category-${WELFARE_CATEGORY_CONFIG.slug}`)) {
+                return true;
+            }
+
+            return [...row.querySelectorAll('a[href*="/c/"]')].some((link) => {
+                const href = link.getAttribute('href') || '';
+                const text = link.textContent?.trim() || '';
+                return (
+                    href.includes(`/c/${WELFARE_CATEGORY_CONFIG.slug}/`)
+                    || href.endsWith(`/c/${WELFARE_CATEGORY_CONFIG.slug}/${WELFARE_CATEGORY_CONFIG.id}`)
+                    || text === WELFARE_CATEGORY_CONFIG.name
+                );
+            });
+        }
+
         getPreviewImageTarget(target) {
             const image = target?.closest?.('.linuxdo-topic-preview-cooked img');
             if (!image) {
@@ -3379,6 +3690,18 @@
                     this.applyVisitedTopicState();
                     window.open(topicHref, '_blank', 'noopener');
                 }
+                return;
+            }
+
+            const topicLotteryButton = event.target.closest('.linuxdo-topic-lottery-trigger');
+            if (topicLotteryButton) {
+                if (!this.isModifiedPrimaryClick(event)) {
+                    return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation?.();
+                this.submitTopicListLotteryReply(topicLotteryButton);
                 return;
             }
 
@@ -3453,6 +3776,20 @@
                 return;
             }
 
+            const replyQuickSubmit = event.target.closest('[data-role="preview-reply-quick-submit"]');
+            if (replyQuickSubmit) {
+                if (!this.isModifiedPrimaryClick(event)) {
+                    return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation?.();
+                this.submitPreviewReply(replyQuickSubmit, {
+                    rawOverride: this.getRandomLotteryQuickReplyText()
+                });
+                return;
+            }
+
             const previewImage = this.getPreviewImageTarget(event.target);
             if (previewImage) {
                 if (!this.isModifiedPrimaryClick(event)) {
@@ -3518,6 +3855,7 @@
             if (footerToggle) {
                 this.setReplyToggleState(footerToggle, false);
             }
+            this.syncPreviewLotteryButton(0);
             this.closeImageViewer();
             root.classList.add('visible');
             document.documentElement.classList.add('linuxdo-topic-preview-open');
@@ -3835,6 +4173,32 @@
             }, 1800);
         }
 
+        flashButtonText(button, tempLabel, defaultLabel, durationMs = 1800) {
+            if (!button) {
+                return;
+            }
+
+            const flashToken = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const labelNode = button.querySelector('.linuxdo-topic-lottery-trigger-label');
+            button.dataset.flashToken = flashToken;
+            if (labelNode) {
+                labelNode.textContent = tempLabel;
+            } else {
+                button.textContent = tempLabel;
+            }
+            window.setTimeout(() => {
+                if (!button.isConnected || button.dataset.flashToken !== flashToken) {
+                    return;
+                }
+                delete button.dataset.flashToken;
+                if (labelNode) {
+                    labelNode.textContent = defaultLabel;
+                } else {
+                    button.textContent = defaultLabel;
+                }
+            }, durationMs);
+        }
+
         togglePreviewReplyComposer(toggle) {
             const context = this.getReplyContext(toggle);
             if (!context?.host || !context.input || !context.toggle) {
@@ -4007,15 +4371,20 @@
             }
         }
 
-        async submitPreviewReply(button) {
+        async submitPreviewReply(button, options = {}) {
             if (!button || button.disabled) {
                 return;
             }
 
             const context = this.getReplyContext(button);
             const topicId = Number(this.previewState?.topicId) || 0;
-            const raw = context?.input?.value?.trim() || '';
+            const raw = String(options.rawOverride || context?.input?.value || '').trim();
             const csrfToken = this.getCsrfToken();
+            const isQuickSubmit = button.dataset.role === 'preview-reply-quick-submit';
+            const defaultButtonText = isQuickSubmit
+                ? this.getReplyQuickSubmitButtonText()
+                : this.getReplySubmitButtonText();
+            let shouldRestoreButtonText = true;
 
             if (!context?.host || !context.toggle || !context.input) {
                 return;
@@ -4038,7 +4407,7 @@
             }
 
             button.disabled = true;
-            button.textContent = '发布中';
+            button.textContent = isQuickSubmit ? '参与中' : '发布中';
 
             try {
                 await this.createPreviewReply(
@@ -4048,17 +4417,33 @@
                     context.scope === 'post' ? context.replyToPostNumber : 0
                 );
                 context.input.value = '';
-                button.textContent = '已发布';
                 context.host.classList.remove('is-replying');
-                this.flashReplyToggle(context.toggle, '已发布');
+                if (isQuickSubmit) {
+                    markParticipatedLotteryTopic(topicId);
+                    shouldRestoreButtonText = false;
+                    this.syncPreviewLotteryButton(topicId);
+                    this.syncTopicListLotteryButtons(topicId);
+                } else {
+                    button.textContent = '已发布';
+                    this.flashReplyToggle(context.toggle, '已发布');
+                }
             } catch (error) {
                 console.error('话题预览回复失败:', error);
-                button.textContent = '发布';
+                button.textContent = defaultButtonText;
                 this.flashReplyToggle(context.toggle, '稍后重试');
             } finally {
+                if (!button.isConnected) {
+                    return;
+                }
+
+                if (isQuickSubmit && hasParticipatedLotteryTopic(topicId)) {
+                    this.setLotteryButtonParticipationState(button, true);
+                    return;
+                }
+
                 button.disabled = false;
-                if (button.isConnected) {
-                    button.textContent = this.getReplySubmitButtonText();
+                if (shouldRestoreButtonText) {
+                    button.textContent = defaultButtonText;
                 }
             }
         }
@@ -4089,9 +4474,10 @@
             body.insertAdjacentHTML('beforeend', posts.map((post) => this.buildPostHtml(post)).join(''));
         }
 
-        resetPreviewState(topicId, totalTarget, totalPostCount, streamIds, loadedCount) {
+        resetPreviewState(topicId, totalTarget, totalPostCount, streamIds, loadedCount, categoryId = 0) {
             this.previewState = {
                 topicId,
+                categoryId: Number(categoryId) || 0,
                 totalTarget,
                 totalPostCount,
                 streamIds,
@@ -4220,7 +4606,15 @@
             if (previewBody) {
                 previewBody.scrollTop = 0;
             }
-            this.resetPreviewState(topicId, totalTarget, totalPostCount, streamIds, posts.length);
+            this.resetPreviewState(
+                topicId,
+                totalTarget,
+                totalPostCount,
+                streamIds,
+                posts.length,
+                Number(topicData?.category_id) || 0
+            );
+            this.syncPreviewLotteryButton(topicId);
             this.updatePreviewProgress(posts.length, totalTarget, totalPostCount, false);
             this.maybeLoadMorePreviewPosts();
         }
