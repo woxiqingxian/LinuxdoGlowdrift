@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.03.25.1906
+// @version      2026.03.25.1924
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 配色注入）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -271,6 +271,8 @@
      * 获取基础配置（从存储中读取，如果没有则使用默认值）
      * @returns {Object} 基础配置对象
      */
+    // ----- 基础配置与链接存储 -----
+
     function getBaseConfig() {
         const savedConfig = GM_getValue(STORAGE_KEYS.baseConfig, null);
         return savedConfig ? savedConfig : { ...DEFAULT_CONFIG };
@@ -379,6 +381,8 @@
     }
 
     /** 限制值在区间内 */
+    // ----- 通用计算工具 -----
+
     function clamp(value, min, max) {
         return Math.min(max, Math.max(min, value));
     }
@@ -394,6 +398,8 @@
      * 当前不再提供速度滑块，使用固定基础倍率 + 人类行为状态机调节
      * @returns {Object} 计算后的配置对象
      */
+    // ----- 漫游节奏计算 -----
+
     function getConfig() {
         if (!baseConfig) {
             baseConfig = getBaseConfig();
@@ -1876,32 +1882,44 @@
      * 支持等级/分类筛选，以及筛选预设的保存与加载。
      */
     class HomeSieveModule {
-        constructor() {
-            this.panel = null;
-            this.statusEl = null;
-            this.loopTimer = null;
-            this.lastUrl = location.href;
-            this.lastRowCount = 0;
-            this.filterDirty = true;
-            this.visibleCount = 0;
-            this.isRefilling = false;
-            this.waitingRefillResult = false;
-            this.lastRefillAt = 0;
-            this.refillAttempts = 0;
-            this.refillExhausted = false;
-            this.lastRefillRowCount = 0;
-            this.refillRestoreScrollTop = null;
+        // ----- 状态与配置 -----
 
-            this.activeLevels = this.readStored(
-                STORAGE_KEYS.sieveLevels,
-                SIEVE_CONFIG.levels.map((item) => item.key)
-            );
-            this.activeCats = this.readStored(
-                STORAGE_KEYS.sieveCats,
-                SIEVE_CONFIG.categories.map((item) => item.id)
-            );
-            this.sidebarTopicsToNew = getSidebarTopicsToNewState();
-            this.presets = this.readStored(STORAGE_KEYS.sievePresets, {});
+        constructor() {
+            Object.assign(this, this.createDefaultRuntimeState(), this.readStoredState());
+        }
+
+        createDefaultRuntimeState() {
+            return {
+                panel: null,
+                statusEl: null,
+                loopTimer: null,
+                lastUrl: location.href,
+                lastRowCount: 0,
+                filterDirty: true,
+                visibleCount: 0,
+                isRefilling: false,
+                waitingRefillResult: false,
+                lastRefillAt: 0,
+                refillAttempts: 0,
+                refillExhausted: false,
+                lastRefillRowCount: 0,
+                refillRestoreScrollTop: null
+            };
+        }
+
+        readStoredState() {
+            return {
+                activeLevels: this.readStored(
+                    STORAGE_KEYS.sieveLevels,
+                    SIEVE_CONFIG.levels.map((item) => item.key)
+                ),
+                activeCats: this.readStored(
+                    STORAGE_KEYS.sieveCats,
+                    SIEVE_CONFIG.categories.map((item) => item.id)
+                ),
+                sidebarTopicsToNew: getSidebarTopicsToNewState(),
+                presets: this.readStored(STORAGE_KEYS.sievePresets, {})
+            };
         }
 
         readStored(key, fallback) {
@@ -1933,6 +1951,8 @@
             return !(allLevel && allCategory);
         }
 
+        // ----- 生命周期 -----
+
         init() {
             this.ensureStyles();
             this.onRouteChange();
@@ -1947,6 +1967,8 @@
             this.removePanel();
             this.showAllTopics();
         }
+
+        // ----- 样式与 DOM -----
 
         ensureStyles() {
             if (document.getElementById(SIEVE_UI_IDS.style)) {
@@ -2213,6 +2235,8 @@
             wrapper.innerHTML = this.renderPresetChips();
         }
 
+        // ----- 事件绑定与面板状态 -----
+
         bindEvents() {
             if (!this.panel) {
                 return;
@@ -2374,6 +2398,8 @@
 
         }
 
+        // ----- 数据读取与存储 -----
+
         savePreset(name) {
             this.presets[name] = {
                 levels: [...this.activeLevels],
@@ -2408,6 +2434,8 @@
             this.refreshPresetChips();
             this.filterTopics();
         }
+
+        // ----- 列表查询与补载控制 -----
 
         getTopicRows() {
             return Array.from(document.querySelectorAll('.topic-list-body tr.topic-list-item'));
@@ -2568,6 +2596,8 @@
             this.triggerBottomRefill();
         }
 
+        // ----- 筛选逻辑 -----
+
         filterTopics() {
             const rows = this.getTopicRows();
             const totalRows = rows.length;
@@ -2645,6 +2675,8 @@
             this.statusEl.className = `linuxdo-sieve-status${text ? ' visible' : ''}`;
         }
 
+        // ----- 路由与轮询 -----
+
         startLoop() {
             if (this.loopTimer) {
                 return;
@@ -2719,12 +2751,24 @@
      * 在话题列表标题旁注入预览按钮，点击后拉取主题 JSON 并默认显示前 30 楼内容。
      */
     class TopicPreviewModule {
+        // ----- 状态与配置 -----
+
         constructor() {
-            this.loopTimer = null;
-            this.lastUrl = location.href;
-            this.activePreviewRequestId = 0;
-            this.previewState = null;
-            this.imageViewerState = this.createDefaultImageViewerState();
+            Object.assign(this, this.createDefaultRuntimeState());
+            this.bindEventHandlers();
+        }
+
+        createDefaultRuntimeState() {
+            return {
+                loopTimer: null,
+                lastUrl: location.href,
+                activePreviewRequestId: 0,
+                previewState: null,
+                imageViewerState: this.createDefaultImageViewerState()
+            };
+        }
+
+        bindEventHandlers() {
             this.handleDocumentClick = this.handleDocumentClick.bind(this);
             this.handleKeyDown = this.handleKeyDown.bind(this);
             this.handlePreviewBodyScroll = this.handlePreviewBodyScroll.bind(this);
@@ -2735,6 +2779,8 @@
             this.handleImageViewerImageLoad = this.handleImageViewerImageLoad.bind(this);
             this.handleWindowResize = this.handleWindowResize.bind(this);
         }
+
+        // ----- 生命周期 -----
 
         init() {
             this.ensureStyles();
@@ -2807,6 +2853,8 @@
         hasTopicList() {
             return Boolean(document.querySelector('.topic-list .main-link a.title[data-topic-id]'));
         }
+
+        // ----- 样式与 DOM -----
 
         ensureStyles() {
             if (document.getElementById(UI_IDS.topicPreviewStyle)) {
@@ -3522,6 +3570,8 @@
             return !!this.getImageViewerElements()?.viewer?.classList.contains('visible');
         }
 
+        // ----- 图片查看器 -----
+
         clampNumber(value, min, max) {
             return Math.min(Math.max(value, min), max);
         }
@@ -3660,7 +3710,7 @@
                 return;
             }
             event.preventDefault();
-            this.stepImageViewerScale(event.deltaY < 0 ? 1 : -1);
+            this.stepImageViewerScale(event.deltaY < 0 ? -1 : 1);
         }
 
         handleImageViewerMouseDown(event) {
@@ -3708,6 +3758,8 @@
             }
             this.syncImageViewerTransform();
         }
+
+        // ----- 文案与按钮状态 -----
 
         isApplePlatform() {
             const platform = navigator.userAgentData?.platform || navigator.platform || '';
@@ -3907,9 +3959,11 @@
                     this.setLotteryButtonParticipationState(
                         button,
                         hasParticipatedLotteryTopic(topicId)
-                    );
-                });
+                );
+            });
         }
+
+        // ----- 列表入口与点击分发 -----
 
         applyVisitedTopicState() {
             const visitedSet = getVisitedLinkSet();
@@ -4169,6 +4223,8 @@
             }
         }
 
+        // ----- 预览面板状态 -----
+
         openLoadingState() {
             const root = this.ensureModal();
             const title = root.querySelector('.linuxdo-topic-preview-title');
@@ -4211,6 +4267,8 @@
             document.documentElement.classList.remove('linuxdo-topic-preview-open');
             document.body.classList.remove('linuxdo-topic-preview-open');
         }
+
+        // ----- 渲染与回复上下文 -----
 
         formatDate(dateString) {
             const date = new Date(dateString);
@@ -4536,6 +4594,8 @@
             }, durationMs);
         }
 
+        // ----- 点赞与回复提交 -----
+
         togglePreviewReplyComposer(toggle) {
             const context = this.getReplyContext(toggle);
             if (!context?.host || !context.input || !context.toggle) {
@@ -4784,6 +4844,8 @@
                 }
             }
         }
+
+        // ----- 预览加载与滚动补载 -----
 
         updatePreviewProgress(loadedCount, totalTarget, totalPostCount, isLoadingMore = false) {
             const root = this.ensureModal();
@@ -5334,6 +5396,8 @@
     /** 侧边栏话题入口模块实例 */
     let sidebarTopicsLinkModule = null;
 
+    // ----- 模块初始化入口 -----
+
     /** 初始化主页筛选工具（只初始化一次） */
     function initHomeSieveTool() {
         if (homeSieveModule) {
@@ -5387,6 +5451,8 @@
         topicPreviewModule = new TopicPreviewModule();
         topicPreviewModule.init();
     }
+
+    // ----- 漫游主流程 -----
 
     /**
      * 加载并跳转到新页面

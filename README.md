@@ -28,8 +28,86 @@
 ## 文档维护约定
 
 - 脚本顶部注释不再维护详细说明，统一以 `README.md` 为准
-- 功能、存储、版本规则等变更只需要更新本 README
+- 功能、存储、版本规则、开发导航等变更只需要更新本 README
 - 交流语言统一为中文，提交信息与代码注释也保持中文一致
+
+## 开发者代码导航
+
+### 顶层结构总览
+
+- `常量定义`：集中放默认配置、滚动节奏、存储键、主题配置、筛选配置、预览配置
+- `配置管理`：集中放基础配置读取、访问记录、抽奖参与记录、行为节奏计算
+- `开关状态管理`：集中放漫游开关、筛选开关、累计时长、自动关闭相关状态
+- `UI 组件创建`：集中放顶部双开关、运行光圈、时长提醒等站点外层 UI
+- `DOM 工具函数`：集中放元素等待、主题读取、早期配色注入等通用 DOM 能力
+- `主页筛选工具`：`HomeSieveModule`
+- `话题预览`：`TopicPreviewModule`
+- `Horizon 配色注入`：`HorizonPaletteModule`
+- `侧边栏话题入口`：`SidebarTopicsLinkModule`
+- `核心功能`：模块实例、模块初始化入口、漫游主流程
+- `主程序入口`：`main()`、`pagehide` 结算、`load` 绑定
+
+### 核心模块导航
+
+- `HomeSieveModule`
+  - 生命周期：`init()`、`destroy()`、`startLoop()`、`tick()`、`onRouteChange()`
+  - 面板与交互：`ensureStyles()`、`createPanel()`、`bindEvents()`、`updateButtonStates()`
+  - 筛选与补载：`filterTopics()`、`shouldTryRefill()`、`tryRefillVisibleTopics()`
+  - 存储：`readStoredState()`、`savePreset()`、`loadPreset()`、`deletePreset()`
+- `TopicPreviewModule`
+  - 生命周期：`init()`、`destroy()`、`startLoop()`、`tick()`
+  - 列表入口：`ensurePreviewButtons()`、`applyVisitedTopicState()`、`handleDocumentClick()`
+  - 预览加载：`openPreview()`、`renderPreview()`、`renderError()`、`maybeLoadMorePreviewPosts()`
+  - 图片查看器：`openImageViewer()`、`syncImageViewerTransform()`、`handleImageViewerWheel()`
+  - 回复与点赞：`togglePreviewReplyComposer()`、`togglePreviewPostLike()`、`submitPreviewReply()`
+- `HorizonPaletteModule`
+  - 入口：`init()`、`tick()`
+  - 配色注入：`ensureStyles()`、`ensureInjectedPaletteItem()`、`applyPaletteClass()`
+- `SidebarTopicsLinkModule`
+  - 入口：`init()`、`tick()`
+  - 侧边栏改写：`ensureTopicsLink()`、`handleTopicsLinkClick()`、`updateTopicsLinkState()`
+
+### 关键入口函数
+
+- 开关入口：`toggleSwitch()`、`toggleSieveSwitch()`
+- 顶部按钮入口：`createSwitchButton()`、`createSieveSwitchButton()`、`createSwitchIcon()`、`createSieveSwitchIcon()`
+- 模块入口：`applySieveToolState()`、`initHomeSieveTool()`、`initTopicPreviewTool()`、`initHorizonPaletteTool()`、`initSidebarTopicsLinkTool()`
+- 漫游主流程：`loadPage()`、`stopScrolling()`、`scrollComment()`、`startAutoScroll()`、`main()`
+
+### 常量组导航
+
+- 漫游节奏：`DEFAULT_CONFIG`、`SPEED_ENGINE_CONFIG`、`HUMAN_BEHAVIOR_CONFIG`
+- 站点与存储：`SELECTORS`、`STORAGE_KEYS`、`SESSION_KEYS`、`URLS`
+- UI 标识：`UI_IDS`、`SIEVE_UI_IDS`、`UI_THEME`
+- 主题配色：`HORIZON_THEME_CONFIG`
+- 话题预览：`TOPIC_PREVIEW_CONFIG`、`TOPIC_PREVIEW_IMAGE_VIEWER_CONFIG`、`POST_ACTION_TYPES`
+- 筛选相关：`SIEVE_CONFIG`、`WELFARE_CATEGORY_CONFIG`
+
+### 修改入口建议
+
+- 调整自动漫游节奏：优先看 `SPEED_ENGINE_CONFIG`、`HUMAN_BEHAVIOR_CONFIG`、`getNextScrollTick()`
+- 调整漫游累计与自动关闭：优先看 `MAX_ROAM_DURATION_MS`、`scheduleAutoStop()`、`syncRoamAccumulationCheckpoint()`
+- 调整顶部按钮和运行状态 UI：优先看 `ensureToggleButtonStyle()`、`ensureRunningHalo()`、`ensureRoamDurationReminder()`
+- 调整主页筛选逻辑：优先看 `HomeSieveModule.filterTopics()`、`HomeSieveModule.shouldTryRefill()`、`HomeSieveModule.tryRefillVisibleTopics()`
+- 调整话题预览入口和点击行为：优先看 `TopicPreviewModule.ensurePreviewButtons()`、`TopicPreviewModule.handleDocumentClick()`
+- 调整预览加载与滚动补载：优先看 `TopicPreviewModule.openPreview()`、`TopicPreviewModule.renderPreview()`、`TopicPreviewModule.maybeLoadMorePreviewPosts()`
+- 调整预览图片交互：优先看 `TopicPreviewModule.openImageViewer()`、`TopicPreviewModule.syncImageViewerTransform()`、`TopicPreviewModule.handleImageViewerWheel()`
+- 调整预览回复与点赞：优先看 `TopicPreviewModule.togglePreviewReplyComposer()`、`TopicPreviewModule.togglePreviewPostLike()`、`TopicPreviewModule.submitPreviewReply()`
+- 调整 Horizon 配色：优先看 `HorizonPaletteModule.ensureInjectedPaletteItem()`、`getHorizonPaletteStyleText()`
+- 调整侧边栏“话题/最新话题”改写：优先看 `SidebarTopicsLinkModule.ensureTopicsLink()`
+
+## 开发维护规则
+
+- 保持单文件，不拆出多文件，不引入构建工具
+- 新增功能必须归入现有一级分区；只有职责明显独立时，才允许新增一级分区
+- `HomeSieveModule`、`TopicPreviewModule` 这类大模块必须继续维持二级子区块，不允许把新逻辑零散插入任意位置
+- 单个二级子区块接近或超过 `200-300` 行时，必须继续拆出新的子区块
+- 模块内部顺序固定为：状态与配置、生命周期、样式与 DOM、事件绑定、渲染、数据读取与存储、行为逻辑、工具方法
+- 模块样式统一收敛到各自的 `ensureStyles()`，不要把样式片段分散到其他方法
+- 跨模块复用的纯函数优先放回全局工具区，不要在多个模块里复制
+- 新增模块时，必须同步补上 README 的“顶层结构总览”和“核心模块导航”
+- 重命名关键函数、关键常量、关键分区时，必须同步更新 README 导航
+- 每次修改脚本都必须更新 `@version`；若改动影响功能、存储、导航或维护约定，README 也必须同步更新
 
 ## 安装方式
 
