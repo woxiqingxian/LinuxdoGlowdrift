@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.03.25.1217
+// @version      2026.03.25.1906
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 配色注入）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -165,6 +165,13 @@
         preloadRemainingThreshold: 10,
         backgroundBatchSize: 20,
         loopIntervalMs: 900
+    };
+
+    /** 话题预览图片查看器配置 */
+    const TOPIC_PREVIEW_IMAGE_VIEWER_CONFIG = {
+        minScale: 1,
+        maxScale: 10,
+        scaleStep: 0.2
     };
 
     /** 话题预览快捷抽奖回复文案 */
@@ -2717,17 +2724,31 @@
             this.lastUrl = location.href;
             this.activePreviewRequestId = 0;
             this.previewState = null;
+            this.imageViewerState = this.createDefaultImageViewerState();
             this.handleDocumentClick = this.handleDocumentClick.bind(this);
             this.handleKeyDown = this.handleKeyDown.bind(this);
             this.handlePreviewBodyScroll = this.handlePreviewBodyScroll.bind(this);
+            this.handleImageViewerWheel = this.handleImageViewerWheel.bind(this);
+            this.handleImageViewerMouseDown = this.handleImageViewerMouseDown.bind(this);
+            this.handleImageViewerMouseMove = this.handleImageViewerMouseMove.bind(this);
+            this.handleImageViewerMouseUp = this.handleImageViewerMouseUp.bind(this);
+            this.handleImageViewerImageLoad = this.handleImageViewerImageLoad.bind(this);
+            this.handleWindowResize = this.handleWindowResize.bind(this);
         }
 
         init() {
             this.ensureStyles();
             this.ensureModal();
             this.getPreviewBody()?.addEventListener('scroll', this.handlePreviewBodyScroll);
+            const imageViewerElements = this.getImageViewerElements();
+            imageViewerElements?.panel?.addEventListener('wheel', this.handleImageViewerWheel, { passive: false });
+            imageViewerElements?.stage?.addEventListener('mousedown', this.handleImageViewerMouseDown);
+            imageViewerElements?.image?.addEventListener('load', this.handleImageViewerImageLoad);
             document.addEventListener('click', this.handleDocumentClick, true);
             document.addEventListener('keydown', this.handleKeyDown);
+            document.addEventListener('mousemove', this.handleImageViewerMouseMove);
+            document.addEventListener('mouseup', this.handleImageViewerMouseUp);
+            window.addEventListener('resize', this.handleWindowResize);
             this.tick();
             this.startLoop();
         }
@@ -2738,9 +2759,29 @@
                 this.loopTimer = null;
             }
             this.getPreviewBody()?.removeEventListener('scroll', this.handlePreviewBodyScroll);
+            const imageViewerElements = this.getImageViewerElements();
+            imageViewerElements?.panel?.removeEventListener('wheel', this.handleImageViewerWheel, false);
+            imageViewerElements?.stage?.removeEventListener('mousedown', this.handleImageViewerMouseDown);
+            imageViewerElements?.image?.removeEventListener('load', this.handleImageViewerImageLoad);
             document.removeEventListener('click', this.handleDocumentClick, true);
             document.removeEventListener('keydown', this.handleKeyDown);
+            document.removeEventListener('mousemove', this.handleImageViewerMouseMove);
+            document.removeEventListener('mouseup', this.handleImageViewerMouseUp);
+            window.removeEventListener('resize', this.handleWindowResize);
             this.closePreview();
+        }
+
+        createDefaultImageViewerState() {
+            return {
+                scale: TOPIC_PREVIEW_IMAGE_VIEWER_CONFIG.minScale,
+                translateX: 0,
+                translateY: 0,
+                isDragging: false,
+                dragStartX: 0,
+                dragStartY: 0,
+                dragOriginX: 0,
+                dragOriginY: 0
+            };
         }
 
         startLoop() {
@@ -3046,31 +3087,100 @@
                     top: 50%;
                     transform: translate(-50%, -50%);
                     width: min(1040px, calc(100vw - 56px));
+                    height: 90vh;
                     max-height: calc(100vh - 56px);
-                    padding: 22px;
+                    padding: 68px 22px 22px;
+                    box-sizing: border-box;
                     border-radius: 18px;
                     background: rgba(255, 255, 255, 0.96);
                     box-shadow: 0 24px 64px rgba(15, 23, 42, 0.26);
                     border: 1px solid rgba(124, 139, 153, 0.16);
+                    overflow: hidden;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-toolbar {
+                    position: absolute;
+                    top: 18px;
+                    left: 18px;
+                    z-index: 2;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 8px 10px;
+                    border-radius: 999px;
+                    background: rgba(15, 23, 42, 0.72);
+                    color: #f8fafc;
+                    border: 1px solid rgba(255, 255, 255, 0.18);
+                    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-toolbar button {
+                    height: 34px;
+                    min-width: 34px;
+                    padding: 0 10px;
+                    border: 1px solid rgba(255, 255, 255, 0.18);
+                    border-radius: 999px;
+                    background: rgba(255, 255, 255, 0.12);
+                    color: inherit;
+                    cursor: pointer;
+                    font-size: 14px;
+                    line-height: 1;
+                    transition: background 160ms ease, border-color 160ms ease, opacity 160ms ease;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-toolbar button:hover {
+                    background: rgba(255, 255, 255, 0.2);
+                    border-color: rgba(255, 255, 255, 0.3);
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-toolbar button:disabled {
+                    opacity: 0.45;
+                    cursor: not-allowed;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-scale {
+                    min-width: 56px;
+                    text-align: center;
+                    font-size: 13px;
+                    font-variant-numeric: tabular-nums;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-stage {
+                    width: 100%;
+                    height: 100%;
+                    overflow: hidden;
+                    border-radius: 12px;
                     display: flex;
                     align-items: center;
                     justify-content: center;
+                    user-select: none;
+                    cursor: default;
                 }
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-panel img {
                     display: block;
-                    max-width: min(996px, calc(100vw - 100px));
-                    max-height: calc(100vh - 100px);
+                    max-width: 100%;
+                    max-height: 100%;
                     width: auto;
                     height: auto;
                     border-radius: 12px;
                     box-shadow: 0 14px 36px rgba(15, 23, 42, 0.16);
                     object-fit: contain;
                     background: rgba(255, 255, 255, 0.92);
+                    transform-origin: center center;
+                    transition: transform 140ms ease;
+                    will-change: transform;
+                    user-select: none;
+                    -webkit-user-drag: none;
+                    cursor: inherit;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-viewer.is-zoomed .linuxdo-topic-preview-image-stage {
+                    cursor: grab;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-viewer.is-dragging .linuxdo-topic-preview-image-stage {
+                    cursor: grabbing;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-viewer.is-dragging .linuxdo-topic-preview-image-panel img {
+                    transition: none;
                 }
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-close {
                     position: absolute;
                     top: 18px;
                     right: 18px;
+                    z-index: 2;
                     width: 38px;
                     height: 38px;
                     border-radius: 999px;
@@ -3228,13 +3338,24 @@
                     }
                     #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-panel {
                         width: calc(100vw - 24px);
+                        height: calc(100vh - 24px);
                         max-height: calc(100vh - 24px);
-                        padding: 12px;
+                        padding: 58px 12px 12px;
                         border-radius: 14px;
                     }
+                    #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-toolbar {
+                        top: 12px;
+                        left: 12px;
+                        gap: 6px;
+                        padding: 6px 8px;
+                    }
+                    #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-toolbar button {
+                        height: 32px;
+                        min-width: 32px;
+                        padding: 0 8px;
+                    }
                     #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-panel img {
-                        max-width: calc(100vw - 52px);
-                        max-height: calc(100vh - 52px);
+                        border-radius: 10px;
                     }
                     #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-item {
                         grid-template-columns: 1fr;
@@ -3349,14 +3470,22 @@
                 </div>
                 <div class="linuxdo-topic-preview-image-viewer" data-role="preview-image-viewer" aria-hidden="true">
                     <div class="linuxdo-topic-preview-image-mask" data-role="preview-image-mask"></div>
-                    <div class="linuxdo-topic-preview-image-panel">
+                    <div class="linuxdo-topic-preview-image-panel" data-role="preview-image-panel">
+                        <div class="linuxdo-topic-preview-image-toolbar">
+                            <button type="button" aria-label="缩小图片" data-role="preview-image-zoom-out">-</button>
+                            <button type="button" aria-label="放大图片" data-role="preview-image-zoom-in">+</button>
+                            <button type="button" aria-label="重置图片缩放" data-role="preview-image-reset">重置</button>
+                            <span class="linuxdo-topic-preview-image-scale" data-role="preview-image-scale">100%</span>
+                        </div>
                         <button class="linuxdo-topic-preview-image-close" type="button" aria-label="关闭图片预览" data-role="preview-image-close">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                                 <path d="M18 6 6 18"></path>
                                 <path d="m6 6 12 12"></path>
                             </svg>
                         </button>
-                        <img src="" alt="" data-role="preview-image-content">
+                        <div class="linuxdo-topic-preview-image-stage" data-role="preview-image-stage">
+                            <img src="" alt="" draggable="false" data-role="preview-image-content">
+                        </div>
                     </div>
                 </div>
             `;
@@ -3379,7 +3508,13 @@
             }
             return {
                 viewer: root.querySelector('[data-role="preview-image-viewer"]'),
-                image: root.querySelector('[data-role="preview-image-content"]')
+                panel: root.querySelector('[data-role="preview-image-panel"]'),
+                stage: root.querySelector('[data-role="preview-image-stage"]'),
+                image: root.querySelector('[data-role="preview-image-content"]'),
+                zoomInButton: root.querySelector('[data-role="preview-image-zoom-in"]'),
+                zoomOutButton: root.querySelector('[data-role="preview-image-zoom-out"]'),
+                resetButton: root.querySelector('[data-role="preview-image-reset"]'),
+                scaleText: root.querySelector('[data-role="preview-image-scale"]')
             };
         }
 
@@ -3387,11 +3522,112 @@
             return !!this.getImageViewerElements()?.viewer?.classList.contains('visible');
         }
 
+        clampNumber(value, min, max) {
+            return Math.min(Math.max(value, min), max);
+        }
+
+        getImageViewerScaleLabel(scale = this.imageViewerState.scale) {
+            return `${Math.round(scale * 100)}%`;
+        }
+
+        getImageViewerBounds(scale = this.imageViewerState.scale) {
+            const elements = this.getImageViewerElements();
+            const stage = elements?.stage;
+            const image = elements?.image;
+            if (!stage || !image) {
+                return { maxOffsetX: 0, maxOffsetY: 0 };
+            }
+
+            const stageWidth = stage.clientWidth;
+            const stageHeight = stage.clientHeight;
+            const imageWidth = image.clientWidth;
+            const imageHeight = image.clientHeight;
+            if (!stageWidth || !stageHeight || !imageWidth || !imageHeight) {
+                return { maxOffsetX: 0, maxOffsetY: 0 };
+            }
+
+            return {
+                maxOffsetX: Math.max(0, (imageWidth * scale - stageWidth) / 2),
+                maxOffsetY: Math.max(0, (imageHeight * scale - stageHeight) / 2)
+            };
+        }
+
+        getClampedImageViewerOffset(translateX = this.imageViewerState.translateX, translateY = this.imageViewerState.translateY, scale = this.imageViewerState.scale) {
+            if (scale <= TOPIC_PREVIEW_IMAGE_VIEWER_CONFIG.minScale) {
+                return { translateX: 0, translateY: 0 };
+            }
+
+            const bounds = this.getImageViewerBounds(scale);
+            return {
+                translateX: this.clampNumber(translateX, -bounds.maxOffsetX, bounds.maxOffsetX),
+                translateY: this.clampNumber(translateY, -bounds.maxOffsetY, bounds.maxOffsetY)
+            };
+        }
+
+        resetImageViewerState() {
+            this.imageViewerState = this.createDefaultImageViewerState();
+        }
+
+        syncImageViewerTransform() {
+            const elements = this.getImageViewerElements();
+            if (!elements?.viewer || !elements.image) {
+                return;
+            }
+
+            const state = this.imageViewerState;
+            const clampedOffset = this.getClampedImageViewerOffset();
+            state.translateX = clampedOffset.translateX;
+            state.translateY = clampedOffset.translateY;
+
+            elements.image.style.transform = `translate(${state.translateX}px, ${state.translateY}px) scale(${state.scale})`;
+            elements.viewer.classList.toggle('is-zoomed', state.scale > TOPIC_PREVIEW_IMAGE_VIEWER_CONFIG.minScale);
+            elements.viewer.classList.toggle('is-dragging', state.isDragging);
+            if (elements.scaleText) {
+                elements.scaleText.textContent = this.getImageViewerScaleLabel();
+            }
+            if (elements.zoomOutButton) {
+                elements.zoomOutButton.disabled = state.scale <= TOPIC_PREVIEW_IMAGE_VIEWER_CONFIG.minScale;
+            }
+            if (elements.zoomInButton) {
+                elements.zoomInButton.disabled = state.scale >= TOPIC_PREVIEW_IMAGE_VIEWER_CONFIG.maxScale;
+            }
+            if (elements.resetButton) {
+                elements.resetButton.disabled = (
+                    state.scale === TOPIC_PREVIEW_IMAGE_VIEWER_CONFIG.minScale
+                    && state.translateX === 0
+                    && state.translateY === 0
+                );
+            }
+        }
+
+        setImageViewerScale(nextScale) {
+            const clampedScale = this.clampNumber(
+                nextScale,
+                TOPIC_PREVIEW_IMAGE_VIEWER_CONFIG.minScale,
+                TOPIC_PREVIEW_IMAGE_VIEWER_CONFIG.maxScale
+            );
+            this.imageViewerState.scale = Number(clampedScale.toFixed(2));
+            if (this.imageViewerState.scale <= TOPIC_PREVIEW_IMAGE_VIEWER_CONFIG.minScale) {
+                this.imageViewerState.translateX = 0;
+                this.imageViewerState.translateY = 0;
+                this.imageViewerState.isDragging = false;
+            }
+            this.syncImageViewerTransform();
+        }
+
+        stepImageViewerScale(stepDirection) {
+            this.setImageViewerScale(
+                this.imageViewerState.scale + (TOPIC_PREVIEW_IMAGE_VIEWER_CONFIG.scaleStep * stepDirection)
+            );
+        }
+
         openImageViewer(imageUrl, altText = '') {
             const elements = this.getImageViewerElements();
             if (!elements?.viewer || !elements.image || !imageUrl) {
                 return;
             }
+            this.resetImageViewerState();
+            this.syncImageViewerTransform();
             elements.image.src = imageUrl;
             elements.image.alt = altText;
             elements.viewer.classList.add('visible');
@@ -3403,10 +3639,74 @@
             if (!elements?.viewer || !elements.image) {
                 return;
             }
+            this.resetImageViewerState();
+            this.syncImageViewerTransform();
             elements.viewer.classList.remove('visible');
             elements.viewer.setAttribute('aria-hidden', 'true');
             elements.image.src = '';
             elements.image.alt = '';
+        }
+
+        handleImageViewerImageLoad() {
+            this.resetImageViewerState();
+            this.syncImageViewerTransform();
+        }
+
+        handleImageViewerWheel(event) {
+            if (!this.isImageViewerOpen()) {
+                return;
+            }
+            if (!event.target.closest('[data-role="preview-image-panel"]')) {
+                return;
+            }
+            event.preventDefault();
+            this.stepImageViewerScale(event.deltaY < 0 ? 1 : -1);
+        }
+
+        handleImageViewerMouseDown(event) {
+            if (!this.isImageViewerOpen() || event.button !== 0) {
+                return;
+            }
+            if (!event.target.closest('[data-role="preview-image-stage"]')) {
+                return;
+            }
+            if (this.imageViewerState.scale <= TOPIC_PREVIEW_IMAGE_VIEWER_CONFIG.minScale) {
+                return;
+            }
+
+            event.preventDefault();
+            this.imageViewerState.isDragging = true;
+            this.imageViewerState.dragStartX = event.clientX;
+            this.imageViewerState.dragStartY = event.clientY;
+            this.imageViewerState.dragOriginX = this.imageViewerState.translateX;
+            this.imageViewerState.dragOriginY = this.imageViewerState.translateY;
+            this.syncImageViewerTransform();
+        }
+
+        handleImageViewerMouseMove(event) {
+            if (!this.imageViewerState.isDragging || !this.isImageViewerOpen()) {
+                return;
+            }
+
+            event.preventDefault();
+            this.imageViewerState.translateX = this.imageViewerState.dragOriginX + (event.clientX - this.imageViewerState.dragStartX);
+            this.imageViewerState.translateY = this.imageViewerState.dragOriginY + (event.clientY - this.imageViewerState.dragStartY);
+            this.syncImageViewerTransform();
+        }
+
+        handleImageViewerMouseUp() {
+            if (!this.imageViewerState.isDragging) {
+                return;
+            }
+            this.imageViewerState.isDragging = false;
+            this.syncImageViewerTransform();
+        }
+
+        handleWindowResize() {
+            if (!this.isImageViewerOpen()) {
+                return;
+            }
+            this.syncImageViewerTransform();
         }
 
         isApplePlatform() {
@@ -3737,6 +4037,43 @@
                 event.stopPropagation();
                 event.stopImmediatePropagation?.();
                 this.closeImageViewer();
+                return;
+            }
+
+            const imageZoomInButton = event.target.closest('[data-role="preview-image-zoom-in"]');
+            if (imageZoomInButton) {
+                if (!this.isModifiedPrimaryClick(event)) {
+                    return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation?.();
+                this.stepImageViewerScale(1);
+                return;
+            }
+
+            const imageZoomOutButton = event.target.closest('[data-role="preview-image-zoom-out"]');
+            if (imageZoomOutButton) {
+                if (!this.isModifiedPrimaryClick(event)) {
+                    return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation?.();
+                this.stepImageViewerScale(-1);
+                return;
+            }
+
+            const imageResetButton = event.target.closest('[data-role="preview-image-reset"]');
+            if (imageResetButton) {
+                if (!this.isModifiedPrimaryClick(event)) {
+                    return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation?.();
+                this.resetImageViewerState();
+                this.syncImageViewerTransform();
                 return;
             }
 
