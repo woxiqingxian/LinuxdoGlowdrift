@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.03.25.1924
+// @version      2026.03.25.1933
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 配色注入）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -3028,8 +3028,9 @@
                     position: absolute;
                     top: 16px;
                     right: 16px;
-                    width: 34px;
+                    min-width: 62px;
                     height: 34px;
+                    padding: 0 10px;
                     border-radius: 999px;
                     border: 1px solid rgba(124, 139, 153, 0.16);
                     background: rgba(255, 255, 255, 0.82);
@@ -3037,8 +3038,21 @@
                     display: inline-flex;
                     align-items: center;
                     justify-content: center;
+                    gap: 6px;
                     cursor: pointer;
                     transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-close svg {
+                    width: 14px;
+                    height: 14px;
+                    flex: 0 0 auto;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-close-key {
+                    font-size: 11px;
+                    font-weight: 700;
+                    line-height: 1;
+                    letter-spacing: 0.02em;
+                    font-variant-numeric: tabular-nums;
                 }
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-close:hover {
                     color: var(--primary, #2f3338);
@@ -3114,6 +3128,16 @@
                     border-radius: 8px;
                     cursor: zoom-in;
                 }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-cooked .lightbox-wrapper .meta,
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-cooked .lightbox-wrapper .image-caption,
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-cooked .lightbox-wrapper .click-to-see {
+                    display: none !important;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-cooked .lightbox-wrapper,
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-cooked a.lightbox {
+                    background: transparent !important;
+                    box-shadow: none !important;
+                }
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-viewer {
                     position: absolute;
                     inset: 0;
@@ -3134,7 +3158,7 @@
                     left: 50%;
                     top: 50%;
                     transform: translate(-50%, -50%);
-                    width: min(1040px, calc(100vw - 56px));
+                    width: 90vw;
                     height: 90vh;
                     max-height: calc(100vh - 56px);
                     padding: 68px 22px 22px;
@@ -3229,8 +3253,9 @@
                     top: 18px;
                     right: 18px;
                     z-index: 2;
-                    width: 38px;
+                    min-width: 62px;
                     height: 38px;
+                    padding: 0 10px;
                     border-radius: 999px;
                     border: 1px solid rgba(255, 255, 255, 0.18);
                     background: rgba(15, 23, 42, 0.52);
@@ -3238,8 +3263,14 @@
                     display: inline-flex;
                     align-items: center;
                     justify-content: center;
+                    gap: 6px;
                     cursor: pointer;
                     transition: background 160ms ease, border-color 160ms ease;
+                }
+                #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-close svg {
+                    width: 14px;
+                    height: 14px;
+                    flex: 0 0 auto;
                 }
                 #${UI_IDS.topicPreviewRoot} .linuxdo-topic-preview-image-close:hover {
                     background: rgba(15, 23, 42, 0.72);
@@ -3448,11 +3479,12 @@
             root.innerHTML = `
                 <div class="linuxdo-topic-preview-mask" data-role="mask"></div>
                 <div class="linuxdo-topic-preview-panel" role="dialog" aria-modal="true" aria-label="话题预览">
-                    <button class="linuxdo-topic-preview-close" type="button" aria-label="关闭预览" data-role="close">
+                    <button class="linuxdo-topic-preview-close" type="button" aria-label="关闭预览（Esc）" title="关闭预览（Esc）" data-role="close">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                             <path d="M18 6 6 18"></path>
                             <path d="m6 6 12 12"></path>
                         </svg>
+                        <span class="linuxdo-topic-preview-close-key">Esc</span>
                     </button>
                     <div class="linuxdo-topic-preview-header">
                         <h2 class="linuxdo-topic-preview-title">正在加载中...</h2>
@@ -3525,11 +3557,12 @@
                             <button type="button" aria-label="重置图片缩放" data-role="preview-image-reset">重置</button>
                             <span class="linuxdo-topic-preview-image-scale" data-role="preview-image-scale">100%</span>
                         </div>
-                        <button class="linuxdo-topic-preview-image-close" type="button" aria-label="关闭图片预览" data-role="preview-image-close">
+                        <button class="linuxdo-topic-preview-image-close" type="button" aria-label="关闭图片预览（Esc）" title="关闭图片预览（Esc）" data-role="preview-image-close">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                                 <path d="M18 6 6 18"></path>
                                 <path d="m6 6 12 12"></path>
                             </svg>
+                            <span class="linuxdo-topic-preview-close-key">Esc</span>
                         </button>
                         <div class="linuxdo-topic-preview-image-stage" data-role="preview-image-stage">
                             <img src="" alt="" draggable="false" data-role="preview-image-content">
