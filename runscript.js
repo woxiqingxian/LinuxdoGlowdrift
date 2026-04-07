@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linuxdo流光漫游
 // @namespace    https://github.com/woxiqingxian/LinuxdoGlowdrift
-// @version      2026.03.25.1933
+// @version      2026.04.07.1019
 // @description  Linuxdo论坛自动漫游助手（人类浏览节奏 + 主页筛选工具 + 配色注入）
 // @author       Cressida
 // @match        https://linux.do/*
@@ -174,14 +174,20 @@
         scaleStep: 0.2
     };
 
+    /** 话题预览快捷抽奖回复最小字数 */
+    const LOTTERY_QUICK_REPLY_MIN_LENGTH = 21;
+
+    /** 话题预览快捷抽奖回复兜底文案 */
+    const LOTTERY_QUICK_REPLY_FALLBACK_TEXT = '感谢佬友分享这波福利，认真参与一下，希望这次能有好运。';
+
     /** 话题预览快捷抽奖回复文案 */
     const LOTTERY_QUICK_REPLY_TEXTS = Object.freeze([
-        '前排积极参与',
-        '佬友太秀了',
-        '支持佬友',
-        '立即來抽',
-        '马上上车',
-        '轮到我中奖'
+        '感谢佬友分享这波福利，认真参与一下，希望这次能有好运。',
+        '这波活动看起来很不错，前来支持参与，祝自己今天手气在线。',
+        '福利内容已经看到，按规则认真回复参与一下，感谢楼主安排。',
+        '路过看到这条羊毛帖，先来留言参与，希望好运这次能轮到我。',
+        '佬友分享得很及时，这里按要求参与一手，也祝大家都能中奖。',
+        '活动规则已经看完，现在正式留言参与，期待后面开奖有惊喜。'
     ]);
 
     /** 福利羊毛分类识别 */
@@ -3815,12 +3821,21 @@
             return '已参与';
         }
 
+        getTextCharCount(text) {
+            return Array.from(String(text || '').replace(/\s+/g, '').trim()).length;
+        }
+
         getRandomLotteryQuickReplyText() {
-            if (!LOTTERY_QUICK_REPLY_TEXTS.length) {
-                return '';
+            const candidates = LOTTERY_QUICK_REPLY_TEXTS
+                .map((text) => String(text || '').trim())
+                .filter((text) => this.getTextCharCount(text) >= LOTTERY_QUICK_REPLY_MIN_LENGTH);
+
+            if (!candidates.length) {
+                return LOTTERY_QUICK_REPLY_FALLBACK_TEXT;
             }
-            const index = Math.floor(Math.random() * LOTTERY_QUICK_REPLY_TEXTS.length);
-            return LOTTERY_QUICK_REPLY_TEXTS[index] || LOTTERY_QUICK_REPLY_TEXTS[0];
+
+            const index = Math.floor(Math.random() * candidates.length);
+            return candidates[index] || candidates[0] || LOTTERY_QUICK_REPLY_FALLBACK_TEXT;
         }
 
         setLotteryButtonParticipationState(button, participated = false) {
